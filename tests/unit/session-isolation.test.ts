@@ -71,26 +71,26 @@ describe("Session Isolation", () => {
 
 		// Session 1 selects SPR1
 		await sessionState.setSessionConfig("session-1", {
-			file: "SPR1.md",
+			file: TestPrompt.Spr1,
 			mode: "append",
 			enabled: true,
 		});
 
 		// Session 2 selects SPR2
 		await sessionState.setSessionConfig("session-2", {
-			file: "SPR2.md",
+			file: TestPrompt.Spr2,
 			mode: "replace",
 			enabled: true,
 		});
 
 		// Verify Session 1 still has SPR1
 		const s1Config = await service.getCurrentConfig("session-1");
-		expect(s1Config.file).toBe("SPR1.md");
+		expect(s1Config.file).toBe(TestPrompt.Spr1);
 		expect(s1Config.mode).toBe("append");
 
 		// Verify Session 2 has SPR2
 		const s2Config = await service.getCurrentConfig("session-2");
-		expect(s2Config.file).toBe("SPR2.md");
+		expect(s2Config.file).toBe(TestPrompt.Spr2);
 		expect(s2Config.mode).toBe("replace");
 
 		// Verify resolution differs for each session
@@ -112,12 +112,12 @@ describe("Session Isolation", () => {
 		{
 			const sessionState = new SessionStateAdapter(statePath);
 			await sessionState.setSessionConfig("session-1", {
-				file: "SPR1.md",
+				file: TestPrompt.Spr1,
 				mode: "append",
 				enabled: true,
 			});
 			await sessionState.setSessionConfig("session-2", {
-				file: "SPR2.md",
+				file: TestPrompt.Spr2,
 				mode: "replace",
 				enabled: true,
 			});
@@ -135,11 +135,11 @@ describe("Session Isolation", () => {
 
 			// Session 1 is reopened: it must restore SPR1, NOT SPR2
 			const restoredS1 = await freshService.getCurrentConfig("session-1");
-			expect(restoredS1.file).toBe("SPR1.md");
+			expect(restoredS1.file).toBe(TestPrompt.Spr1);
 			expect(restoredS1.mode).toBe("append");
 
 			const restoredS2 = await freshService.getCurrentConfig("session-2");
-			expect(restoredS2.file).toBe("SPR2.md");
+			expect(restoredS2.file).toBe(TestPrompt.Spr2);
 			expect(restoredS2.mode).toBe("replace");
 		}
 	});

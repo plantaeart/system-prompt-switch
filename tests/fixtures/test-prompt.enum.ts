@@ -30,4 +30,7 @@ export enum TestPrompt {
 	// --- session-isolation.test.ts (real FsStorageAdapter on temp dirs) ---
 	Spr1 = "SPR1.md",
 	Spr2 = "SPR2.md",
+
+	// --- extension-lifecycle.test.ts (e2e, temp dir cleared in afterEach) ---
+	E2EPrompt = "test-prompt.md",
 }

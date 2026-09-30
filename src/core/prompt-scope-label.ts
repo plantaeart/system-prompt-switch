@@ -1,12 +1,19 @@
 import { HostPlatform } from "./types/host-platform.type";
-import { globalScopeFor, PromptScope } from "./types/prompt-scope.type";
+import {
+	LegacyPromptScope,
+	globalScopeFor,
+	PromptScope,
+} from "./types/prompt-scope.type";
 
-/** Short labels shown in the modals, the widget, and the built prompt. */
-export const SCOPE_BY_LABEL: Record<string, PromptScope> = {
+/**
+ * Short labels shown in the modals, the widget, and the built prompt. The keys
+ * are the strings parseOption sees in an option line like "[omp] name.md".
+ */
+export const SCOPE_BY_LABEL = {
 	local: PromptScope.Local,
 	omp: PromptScope.GlobalOmp,
 	pi: PromptScope.GlobalPi,
-};
+} as const satisfies Record<string, PromptScope>;
 
 const LABEL_BY_SCOPE: Record<PromptScope, string> = {
 	[PromptScope.Local]: "local",
@@ -14,18 +21,21 @@ const LABEL_BY_SCOPE: Record<PromptScope, string> = {
 	[PromptScope.GlobalPi]: "pi",
 };
 
-/** Render a scope the way the UI shows it. */
-export function formatScope(scope: PromptScope | string): string {
+/**
+ * Render a scope the way the UI shows it. Accepts a string because this runs at
+ * the parse boundary, where the value came from stored JSON.
+ */
+export function formatScope(scope: PromptScope | LegacyPromptScope | string): string {
 	return LABEL_BY_SCOPE[scope as PromptScope] ?? String(scope);
 }
 
 /**
  * Map a scope read from persisted JSON onto a host-explicit one. Anything that
- * is not already explicit — including the bare "global" older sessions wrote —
- * resolves to the detected host.
+ * is not already explicit — including the bare legacy "global" older sessions
+ * wrote — resolves to the detected host.
  */
 export function resolveScope(
-	scope: PromptScope | string | undefined,
+	scope: PromptScope | LegacyPromptScope | string | undefined,
 	host: HostPlatform,
 ): PromptScope {
 	if (scope === PromptScope.GlobalOmp || scope === PromptScope.GlobalPi) {

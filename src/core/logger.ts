@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { detectHost } from "./paths";
-import type { HostPlatform } from "./types/host-platform.type";
+import { HostPlatform } from "./types/host-platform.type";
 
 export function resolveLogPath(
 	host?: HostPlatform,
@@ -20,7 +20,7 @@ export function resolveLogPath(
 	const home = os.homedir();
 	return path.join(
 		home,
-		activeHost === "omp" ? ".omp" : ".pi",
+		activeHost === HostPlatform.Omp ? ".omp" : ".pi",
 		"agent",
 		"logs",
 		"system-prompt-switch.log",

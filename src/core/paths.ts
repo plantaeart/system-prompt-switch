@@ -39,14 +39,14 @@ export function resolveHostPaths(
 	// override applies to the detected host only, so the other host keeps its
 	// own real location instead of silently sharing one.
 	const ompGlobalPromptDir =
-		host === "omp" && envGlobalDir
+		host === HostPlatform.Omp && envGlobalDir
 			? envGlobalDir
 			: path.join(home, ".omp", "agent", "system-prompts-switch");
 	const piGlobalPromptDir =
-		host === "pi" && envGlobalDir
+		host === HostPlatform.Pi && envGlobalDir
 			? envGlobalDir
 			: path.join(home, ".pi", "agent", "system-prompts-switch");
-	const globalPromptDir = host === "omp" ? ompGlobalPromptDir : piGlobalPromptDir;
+	const globalPromptDir = host === HostPlatform.Omp ? ompGlobalPromptDir : piGlobalPromptDir;
 
 	const envLocalDir = env.SPS_LOCAL_PROMPT_DIR?.trim();
 	const localPromptDir =
@@ -61,7 +61,7 @@ export function resolveHostPaths(
 			? envStatePath
 			: path.join(
 					home,
-					host === "omp" ? ".omp" : ".pi",
+					host === HostPlatform.Omp ? ".omp" : ".pi",
 					"agent",
 					"state",
 					"system-prompt-switch",

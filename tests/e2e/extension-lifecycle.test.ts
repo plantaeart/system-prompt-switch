@@ -5,7 +5,17 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { ExtensionEventType } from "../../src/core/types/extension-event-type.type";
 import { SessionStartReason } from "../../src/core/types/session-start-reason.type";
+import { detectHost } from "../../src/core/paths";
 import { ExtensionCommand } from "../../src/core/types/extension-command.type";
+import { TestPrompt } from "../fixtures/test-prompt.enum";
+import {
+	globalScopeFor,
+	PromptScope,
+} from "../../src/core/types/prompt-scope.type";
+
+/** The detected host, so the suite passes whichever binary the machine runs. */
+const HOST_SCOPE = globalScopeFor(detectHost());
+const HOST_LABEL = HOST_SCOPE === PromptScope.GlobalOmp ? "omp" : "pi";
 import systemPromptSwitchExtension from "../../extensions/index";
 
 describe("Extension Lifecycle E2E", () => {
@@ -24,7 +34,7 @@ describe("Extension Lifecycle E2E", () => {
 		process.env.SPS_STATE_PATH = path.join(stateDir, "sessions.json");
 
 		fs.writeFileSync(
-			path.join(promptsDir, "test-prompt.md"),
+			path.join(promptsDir, TestPrompt.E2EPrompt),
 			"You are an E2E test assistant.",
 			"utf-8",
 		);
@@ -95,7 +105,7 @@ describe("Extension Lifecycle E2E", () => {
 			ui: {
 				select: async (_title: string, _options: string[]) => {
 					selectTriggered = true;
-					return "[omp] test-prompt.md";
+					return `[${HOST_LABEL}] ${TestPrompt.E2EPrompt}`;
 				},
 				notify: () => {},
 				setWidget: (_key: string, content: string[] | undefined) => {
@@ -115,7 +125,7 @@ describe("Extension Lifecycle E2E", () => {
 		await selectDone;
 
 		expect(selectTriggered).toBe(true);
-		expect(currentWidget?.[0]).toContain("[omp] test-prompt.md (append mode)");
+		expect(currentWidget?.[0]).toContain(`[${HOST_LABEL}] ${TestPrompt.E2EPrompt} (append mode)`);
 
 		// 2. Trigger before_agent_start
 		const beforeAgentHandlers = eventHandlers.get("before_agent_start")!;
@@ -238,7 +248,7 @@ describe("Extension Lifecycle E2E", () => {
 				select: async () => {
 					selectCalls++;
 					asked.resolve();
-					return "[omp] test-prompt.md";
+					return `[${HOST_LABEL}] ${TestPrompt.E2EPrompt}`;
 				},
 				notify: () => {},
 				setWidget: () => {},

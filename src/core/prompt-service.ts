@@ -517,7 +517,9 @@ export class PromptService {
 
 		const config = await this.getCurrentConfig(sessionId);
 		let targetFile: string | undefined = config.file ?? undefined;
-		let targetScope: PromptScope | "global" | undefined = config.scope;
+		// getCurrentConfig already normalises any legacy bare "global" to the
+		// detected host's explicit scope, so no legacy union is needed here.
+		let targetScope: PromptScope | undefined = config.scope;
 
 		if (!targetFile || !files.some((f) => f.name === targetFile)) {
 			const choice = await this.ui.select(

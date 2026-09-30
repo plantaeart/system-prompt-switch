@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { FixturePrompt } from "../fixtures/fixture-prompt.enum";
 import {
 	buildSystemPrompt,
 	escapeXml,
@@ -50,7 +51,7 @@ describe("prompt-builder", () => {
 			},
 			appendSystemPrompt: "Extra system instructions.",
 			contextFiles: [
-				{ path: "AGENTS.md", content: "Always follow agent rules." },
+				{ path: FixturePrompt.AgentsFile, content: "Always follow agent rules." },
 			],
 			skills: [
 				{
@@ -75,7 +76,7 @@ describe("prompt-builder", () => {
 		expect(result).toContain("- read: Read a file");
 		expect(result).toContain("- bash: Execute command");
 		expect(result).toContain("Extra system instructions.");
-		expect(result).toContain('<project_instructions path="AGENTS.md">');
+		expect(result).toContain(`<project_instructions path="${FixturePrompt.AgentsFile}">`);
 		expect(result).toContain("Always follow agent rules.");
 		expect(result).toContain("<available_skills>");
 		expect(result).toContain("<name>skill-one</name>");

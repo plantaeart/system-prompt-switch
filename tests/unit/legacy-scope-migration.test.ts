@@ -3,8 +3,17 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { SessionStateAdapter } from "../../src/adapters/session-state.adapter";
-import { PromptScope } from "../../src/core/types/prompt-scope.type";
+import { FixturePrompt } from "../fixtures/fixture-prompt.enum";
+import { detectHost } from "../../src/core/paths";
+import {
+	globalScopeFor,
+	LegacyPromptScope,
+	PromptScope,
+} from "../../src/core/types/prompt-scope.type";
 import type { SessionPromptConfig } from "../../src/core/types/session-prompt-config.type";
+
+/** A bare legacy "global" migrates to whichever host this machine resolves to. */
+const HOST_SCOPE = globalScopeFor(detectHost());
 
 /**
  * Older sessions persisted a bare "global" scope, which meant "whatever host we
@@ -39,9 +48,9 @@ describe("legacy scope migration", () => {
 	it("rewrites a bare 'global' scope to the detected host on read", async () => {
 		writeState({
 			sess: {
-				file: "beh.md",
-				scope: "global",
-				activePrompts: [{ name: "beh.md", scope: "global" }],
+				file: FixturePrompt.Beh,
+				scope: LegacyPromptScope.Global,
+				activePrompts: [{ name: FixturePrompt.Beh, scope: LegacyPromptScope.Global }],
 				mode: "append",
 				enabled: true,
 			} as unknown as SessionPromptConfig,
@@ -50,16 +59,16 @@ describe("legacy scope migration", () => {
 		const adapter = new SessionStateAdapter(statePath);
 		const config = await adapter.getSessionConfig("sess");
 
-		expect(config?.scope).toBe(PromptScope.GlobalOmp);
-		expect(config?.activePrompts?.[0].scope).toBe(PromptScope.GlobalOmp);
+		expect(config?.scope).toBe(HOST_SCOPE);
+		expect(config?.activePrompts?.[0].scope).toBe(HOST_SCOPE);
 	});
 
 	it("persists the migrated value so the file holds no bare 'global'", async () => {
 		writeState({
 			sess: {
-				file: "beh.md",
-				scope: "global",
-				activePrompts: [{ name: "beh.md", scope: "global" }],
+				file: FixturePrompt.Beh,
+				scope: LegacyPromptScope.Global,
+				activePrompts: [{ name: FixturePrompt.Beh, scope: LegacyPromptScope.Global }],
 				mode: "append",
 				enabled: true,
 			} as unknown as SessionPromptConfig,
@@ -69,30 +78,33 @@ describe("legacy scope migration", () => {
 		await adapter.getSessionConfig("sess");
 
 		const onDisk = readState().sess as SessionPromptConfig;
-		expect(JSON.stringify(onDisk)).not.toContain('"global"');
-		expect(onDisk.scope).toBe(PromptScope.GlobalOmp);
+		// Quoted so "global-omp" cannot match; we assert the bare legacy value is gone.
+		expect(JSON.stringify(onDisk)).not.toContain(
+			`"${LegacyPromptScope.Global}"`,
+		);
+		expect(onDisk.scope).toBe(HOST_SCOPE);
 	});
 
 	it("migrates every entry in the file, not just the one requested", async () => {
 		writeState({
 			one: {
-				file: "a.md",
-				scope: "global",
-				activePrompts: [{ name: "a.md", scope: "global" }],
+				file: FixturePrompt.A,
+				scope: LegacyPromptScope.Global,
+				activePrompts: [{ name: FixturePrompt.A, scope: LegacyPromptScope.Global }],
 				mode: "append",
 				enabled: true,
 			} as unknown as SessionPromptConfig,
 			two: {
-				file: "b.md",
-				scope: "global",
-				activePrompts: [{ name: "b.md", scope: "global" }],
+				file: FixturePrompt.B,
+				scope: LegacyPromptScope.Global,
+				activePrompts: [{ name: FixturePrompt.B, scope: LegacyPromptScope.Global }],
 				mode: "append",
 				enabled: true,
 			} as unknown as SessionPromptConfig,
 			three: {
-				file: "c.md",
-				scope: "local",
-				activePrompts: [{ name: "c.md", scope: "local" }],
+				file: FixturePrompt.C,
+				scope: PromptScope.Local,
+				activePrompts: [{ name: FixturePrompt.C, scope: PromptScope.Local }],
 				mode: "append",
 				enabled: true,
 			} as unknown as SessionPromptConfig,
@@ -102,17 +114,20 @@ describe("legacy scope migration", () => {
 		await adapter.getSessionConfig("one");
 
 		const onDisk = readState();
-		expect(JSON.stringify(onDisk)).not.toContain('"global"');
-		expect((onDisk.two as SessionPromptConfig).scope).toBe(PromptScope.GlobalOmp);
+		// Quoted so "global-omp" cannot match; we assert the bare legacy value is gone.
+		expect(JSON.stringify(onDisk)).not.toContain(
+			`"${LegacyPromptScope.Global}"`,
+		);
+		expect((onDisk.two as SessionPromptConfig).scope).toBe(HOST_SCOPE);
 		expect((onDisk.three as SessionPromptConfig).scope).toBe(PromptScope.Local);
 	});
 
 	it("leaves already-explicit scopes untouched", async () => {
 		writeState({
 			sess: {
-				file: "beh.md",
+				file: FixturePrompt.Beh,
 				scope: PromptScope.GlobalPi,
-				activePrompts: [{ name: "beh.md", scope: PromptScope.GlobalPi }],
+				activePrompts: [{ name: FixturePrompt.Beh, scope: PromptScope.GlobalPi }],
 				mode: "append",
 				enabled: true,
 			},
@@ -123,9 +138,9 @@ describe("legacy scope migration", () => {
 
 		expect(config?.scope).toBe(PromptScope.GlobalPi);
 		expect(readState().sess).toEqual({
-			file: "beh.md",
+			file: FixturePrompt.Beh,
 			scope: PromptScope.GlobalPi,
-			activePrompts: [{ name: "beh.md", scope: PromptScope.GlobalPi }],
+			activePrompts: [{ name: FixturePrompt.Beh, scope: PromptScope.GlobalPi }],
 			mode: "append",
 			enabled: true,
 		});
@@ -134,9 +149,9 @@ describe("legacy scope migration", () => {
 	it("does not rewrite the file when nothing needs migrating", async () => {
 		writeState({
 			sess: {
-				file: "beh.md",
+				file: FixturePrompt.Beh,
 				scope: PromptScope.Local,
-				activePrompts: [{ name: "beh.md", scope: PromptScope.Local }],
+				activePrompts: [{ name: FixturePrompt.Beh, scope: PromptScope.Local }],
 				mode: "append",
 				enabled: true,
 			},
