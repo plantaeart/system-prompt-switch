@@ -17,7 +17,9 @@
     "./extensions"
   ],
   "scripts": {
-    "test": "bun test",
+    "test": "bun run test:pi && bun run test:omp",
+    "test:pi": "OMPCODE=0 bun test",
+    "test:omp": "OMPCODE=1 bun test",
     "lint": "oxlint",
     "typecheck": "tsc --noEmit",
     "validate:skills": "bash .agents/skills/ci-check/scripts/validate-skills.sh",

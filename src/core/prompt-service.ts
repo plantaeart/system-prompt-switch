@@ -26,9 +26,13 @@ export const CREATE_NEW_LOCAL_OPTION = "+ Create new [local] prompt (.agents/...
 
 /**
  * The three scope destinations shown by every "where should this go?" picker.
- * Shared by /sps-new and /sps-move so both name a scope the same way.
+ * Shared by /sps-new and /sps-move so both name a scope the same way. Exported
+ * so tests pick the exact label the picker offers instead of guessing one.
  */
-const SCOPE_DESTINATIONS: ReadonlyArray<{ label: string; scope: PromptScope }> = [
+export const SCOPE_DESTINATIONS: ReadonlyArray<{
+	label: string;
+	scope: PromptScope;
+}> = [
 	{ label: "[omp] User home (~/.omp/agent/system-prompts-switch/)", scope: PromptScope.GlobalOmp },
 	{ label: "[pi] User home (~/.pi/agent/system-prompts-switch/)", scope: PromptScope.GlobalPi },
 	{ label: "[local] Current repo (.agents/system-prompts-switch/)", scope: PromptScope.Local },

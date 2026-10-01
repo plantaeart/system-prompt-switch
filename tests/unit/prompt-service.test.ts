@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "bun:test";
-import { NONE_OPTION, PromptService } from "../../src/core/prompt-service";
+import { NONE_OPTION, PromptService, SCOPE_DESTINATIONS } from "../../src/core/prompt-service";
 import type { PromptFileInfo } from "../../src/core/types/prompt-file-info.type";
 import type { SessionPromptConfig } from "../../src/core/types/session-prompt-config.type";
 import type { SessionStatePort } from "../../src/ports/session-state.port";
@@ -22,6 +22,14 @@ const OTHER_SCOPE =
 	HOST_SCOPE === PromptScope.GlobalOmp ? PromptScope.GlobalPi : PromptScope.GlobalOmp;
 /** The modal label for the detected host, e.g. "omp" or "pi". */
 const HOST_LABEL = HOST_SCOPE === PromptScope.GlobalOmp ? "omp" : "pi";
+
+/**
+ * The exact picker option for a scope, read from the source so a rename cannot
+ * silently turn a passing test into one that picks no destination at all.
+ */
+function destinationFor(scope: PromptScope): string {
+	return SCOPE_DESTINATIONS.find((d) => d.scope === scope)!.label;
+}
 
 class MockStorage implements StoragePort {
 	localFiles = new Map<string, string>();
@@ -224,7 +232,7 @@ describe("PromptService", () => {
 
 	it("creates a new prompt and can activate it for session", async () => {
 		ui.inputValue = "security-auditor";
-		ui.selectChoices = [`[${HOST_LABEL}] User home (~/.omp or ~/.pi)`];
+		ui.selectChoices = [destinationFor(HOST_SCOPE)];
 		ui.editorValue = "Audit for vulnerabilities.";
 		const result = await service.createNewPrompt("sess-1");
 		expect(result).toBe(FixturePrompt.SecurityAuditor);
@@ -806,7 +814,7 @@ describe("PromptService", () => {
 	it("moves a prompt to another scope and keeps it out of the source scope", async () => {
 		storage.localFiles.set(FixturePrompt.Beh, "Backend dev rules.");
 
-		ui.selectChoices = ["[local] beh.md", "[omp] User home (~/.omp/agent/system-prompts-switch/)"];
+		ui.selectChoices = ["[local] beh.md", destinationFor(HOST_SCOPE)];
 		await service.movePrompt("sess-move-1");
 
 		expect(storage.localFiles.has(FixturePrompt.Beh)).toBe(false);
@@ -819,7 +827,7 @@ describe("PromptService", () => {
 	it("does not offer the prompt's current scope as a destination", async () => {
 		storage.localFiles.set(FixturePrompt.Old, "Old content");
 
-		ui.selectChoices = ["[local] old.md", "[omp] User home (~/.omp/agent/system-prompts-switch/)"];
+		ui.selectChoices = ["[local] old.md", destinationFor(HOST_SCOPE)];
 		await service.movePrompt("sess-move-2");
 
 		const destinationOptions = ui.offeredOptions[ui.offeredOptions.length - 1];
@@ -833,7 +841,7 @@ describe("PromptService", () => {
 
 		ui.selectChoices = [
 			"[local] duplicate.md",
-			"[omp] User home (~/.omp/agent/system-prompts-switch/)",
+			destinationFor(HOST_SCOPE),
 			undefined,
 		];
 		ui.confirmValues = [false];
@@ -851,10 +859,7 @@ describe("PromptService", () => {
 		storage.localFiles.set(FixturePrompt.Duplicate, "Local content");
 		storage.globalFiles.set(FixturePrompt.Duplicate, "Global content");
 
-		ui.selectChoices = [
-			"[local] duplicate.md",
-			"[omp] User home (~/.omp/agent/system-prompts-switch/)",
-		];
+		ui.selectChoices = ["[local] duplicate.md", destinationFor(HOST_SCOPE)];
 		ui.confirmValues = [true];
 
 		await service.movePrompt("sess-move-4");
@@ -877,12 +882,7 @@ describe("PromptService", () => {
 		});
 
 		const destination = storage.globalFiles;
-		ui.selectChoices = [
-			"[local] beh.md",
-			HOST_SCOPE === PromptScope.GlobalOmp
-				? "[omp] User home (~/.omp/agent/system-prompts-switch/)"
-				: "[pi] User home (~/.pi/agent/system-prompts-switch/)",
-		];
+		ui.selectChoices = ["[local] beh.md", destinationFor(HOST_SCOPE)];
 		await service.movePrompt("sess-move-5");
 
 		expect(destination.has(FixturePrompt.Beh)).toBe(true);
@@ -906,12 +906,7 @@ describe("PromptService", () => {
 			enabled: true,
 		});
 
-		ui.selectChoices = [
-			"[local] a.md",
-			HOST_SCOPE === PromptScope.GlobalOmp
-				? "[omp] User home (~/.omp/agent/system-prompts-switch/)"
-				: "[pi] User home (~/.pi/agent/system-prompts-switch/)",
-		];
+		ui.selectChoices = ["[local] a.md", destinationFor(HOST_SCOPE)];
 		await service.movePrompt("sess-move-6");
 
 		const updated = await service.getCurrentConfig("sess-move-6");
