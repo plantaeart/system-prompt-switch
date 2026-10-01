@@ -82,6 +82,7 @@ describe("Extension Lifecycle E2E", () => {
 		expect(registeredCommands.has(ExtensionCommand.NEW)).toBe(true);
 		expect(registeredCommands.has(ExtensionCommand.EDIT)).toBe(true);
 		expect(registeredCommands.has(ExtensionCommand.DELETE)).toBe(true);
+		expect(registeredCommands.has(ExtensionCommand.MOVE)).toBe(true);
 		expect(registeredCommands.has(ExtensionCommand.MODE)).toBe(true);
 		expect(registeredCommands.has(ExtensionCommand.INFO)).toBe(true);
 		expect(registeredCommands.has(ExtensionCommand.PATH)).toBe(true);

@@ -11,6 +11,7 @@ describe("ExtensionCommand Enum", () => {
 		expect(String(ExtensionCommand.NEW)).toBe("sps-new");
 		expect(String(ExtensionCommand.EDIT)).toBe("sps-edit");
 		expect(String(ExtensionCommand.DELETE)).toBe("sps-delete");
+		expect(String(ExtensionCommand.MOVE)).toBe("sps-move");
 		expect(String(ExtensionCommand.MODE)).toBe("sps-mode");
 		expect(String(ExtensionCommand.INFO)).toBe("sps-info");
 		expect(String(ExtensionCommand.PATH)).toBe("sps-path");

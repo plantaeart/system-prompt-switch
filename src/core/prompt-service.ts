@@ -24,6 +24,16 @@ export const CREATE_NEW_OMP_OPTION = "+ Create new [omp] prompt (~/.omp/agent/..
 export const CREATE_NEW_PI_OPTION = "+ Create new [pi] prompt (~/.pi/agent/...)";
 export const CREATE_NEW_LOCAL_OPTION = "+ Create new [local] prompt (.agents/...)";
 
+/**
+ * The three scope destinations shown by every "where should this go?" picker.
+ * Shared by /sps-new and /sps-move so both name a scope the same way.
+ */
+const SCOPE_DESTINATIONS: ReadonlyArray<{ label: string; scope: PromptScope }> = [
+	{ label: "[omp] User home (~/.omp/agent/system-prompts-switch/)", scope: PromptScope.GlobalOmp },
+	{ label: "[pi] User home (~/.pi/agent/system-prompts-switch/)", scope: PromptScope.GlobalPi },
+	{ label: "[local] Current repo (.agents/system-prompts-switch/)", scope: PromptScope.Local },
+];
+
 /** Short labels shown in the modals. */
 export { SCOPE_BY_LABEL, formatScope, resolveScope } from "./prompt-scope-label";
 
@@ -433,19 +443,11 @@ export class PromptService {
 		if (!preselectedScope && this.ui.hasUI()) {
 			const scopeChoice = await this.ui.select(
 				"Choose destination for new prompt:",
-				[
-					"[omp] User home (~/.omp/agent/system-prompts-switch/)",
-					"[pi] User home (~/.pi/agent/system-prompts-switch/)",
-					"[local] Current repo (.agents/system-prompts-switch/)",
-				],
+				SCOPE_DESTINATIONS.map((d) => d.label),
 			);
-			if (scopeChoice?.startsWith("[local]")) {
-				targetScope = PromptScope.Local;
-			} else if (scopeChoice?.startsWith("[pi]")) {
-				targetScope = PromptScope.GlobalPi;
-			} else {
-				targetScope = PromptScope.GlobalOmp;
-			}
+			targetScope =
+				SCOPE_DESTINATIONS.find((d) => d.label === scopeChoice)?.scope ??
+				PromptScope.GlobalOmp;
 		}
 
 		// Collision check within target scope
@@ -618,6 +620,109 @@ export class PromptService {
 			"info",
 		);
 		return true;
+	}
+
+	/**
+	 * Move a prompt file from one scope to another. The scope it already lives
+	 * in is never offered as a destination, so the picker only shows a real
+	 * move. An existing file at the destination is an overwrite, and cancelling
+	 * that confirm returns to the destination picker rather than abandoning the
+	 * move halfway through.
+	 */
+	async movePrompt(sessionId: string): Promise<boolean> {
+		const files = await this.storage.list();
+		if (files.length === 0) {
+			this.ui.notify("No prompt files to move.", "warning");
+			return false;
+		}
+
+		const choice = await this.ui.select(
+			"Select prompt to move",
+			files.map((f) => `[${formatScope(f.scope)}] ${f.name}`),
+		);
+		if (!choice) return false;
+
+		const parsed = this.parseOption(choice);
+		const sourceScope = resolveScope(parsed.scope, this.host);
+		const targets = SCOPE_DESTINATIONS.filter((d) => d.scope !== sourceScope);
+
+		while (true) {
+			const targetChoice = await this.ui.select(
+				`Move "${parsed.name}" to:`,
+				targets.map((d) => d.label),
+			);
+			const target = targets.find((d) => d.label === targetChoice);
+			if (!target) {
+				this.ui.notify("Move cancelled.", "info");
+				return false;
+			}
+			const destScope = target.scope;
+
+			const content = await this.storage.read(parsed.name, sourceScope);
+			if (content === null) {
+				this.ui.notify(`Could not read "${parsed.name}".`, "error");
+				return false;
+			}
+
+			const existing = await this.storage.read(parsed.name, destScope);
+			if (existing !== null) {
+				const overwrite = await this.ui.confirm(
+					"Confirm Overwrite",
+					`"${parsed.name}" already exists in ${formatScope(destScope)} scope. Overwrite it?`,
+				);
+				if (!overwrite) continue;
+			}
+
+			// Write first: a failed write must leave the source intact, never a
+			// prompt deleted from both scopes.
+			await this.storage.write(parsed.name, content, destScope);
+			const deleted = await this.storage.delete(parsed.name, sourceScope);
+			if (!deleted) {
+				await this.storage.delete(parsed.name, destScope);
+				this.ui.notify(
+					`Could not remove "${parsed.name}" from ${formatScope(sourceScope)} scope. Move cancelled.`,
+					"error",
+				);
+				return false;
+			}
+
+			const config = await this.getCurrentConfig(sessionId);
+			// A ref for the destination already active means the same file name
+			// is loaded twice after the move; keep the existing one and drop the
+			// moved ref rather than injecting the prompt twice.
+			const destAlreadyActive = config.activePrompts.some(
+				(p) => p.name === parsed.name && p.scope === destScope,
+			);
+			const movedRefs = config.activePrompts.filter(
+				(p) => p.name === parsed.name && p.scope === sourceScope,
+			);
+			if (movedRefs.length > 0) {
+				config.activePrompts = destAlreadyActive
+					? config.activePrompts.filter((p) => !movedRefs.includes(p))
+					: config.activePrompts.map((p) =>
+							movedRefs.includes(p) ? { ...p, scope: destScope } : p,
+						);
+				config.file = config.activePrompts[0]?.name ?? null;
+				config.scope = config.activePrompts[0]?.scope;
+				await this.sessionState.setSessionConfig(sessionId, config);
+				await this.updateStatus(sessionId);
+			}
+
+			const destDir =
+				destScope === PromptScope.Local
+					? this.storage.getLocalDirectory()
+					: this.storage.getGlobalDirectory(destScope);
+			logger.info("PROMPT_MOVE", `Moved ${parsed.name}`, {
+				sourceScope,
+				destScope,
+				fullPath: path.join(destDir, parsed.name),
+			});
+			this.ui.notify(
+				`Moved [${formatScope(sourceScope)}] "${parsed.name}" to [${formatScope(destScope)}].\nPath: ${path.join(destDir, parsed.name)}`,
+				"info",
+			);
+			return true;
+		}
 	}
 
 	async toggleMode(sessionId: string, targetMode?: MergeMode): Promise<MergeMode> {

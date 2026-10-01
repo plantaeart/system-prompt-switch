@@ -81,6 +81,7 @@ Demo GIFs:
 | `/sps-edit` | Edit an existing prompt in the built-in editor |
 | `/sps-path` | Print absolute paths for the active prompt and all local/global files |
 | `/sps-delete` | Delete a prompt file (resets session if it was active) |
+| `/sps-move` | Move a prompt file to another scope (local, global pi, or global omp) |
 | `/sps-mode [append\|replace]` | Toggle or set the merge mode |
 | `/sps-info` | Show host, active prompts, mode, session ID, and directories |
 | `/sps-logs [lines]` | Tail the session log |

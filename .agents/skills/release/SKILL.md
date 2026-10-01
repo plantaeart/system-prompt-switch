@@ -132,7 +132,7 @@ https://pi.dev/packages/system-prompt-switch
 The package page should render:
 - Hero image from `pi.image` (raw.githubusercontent.com URL)
 - README content with inline demo GIFs
-- All 9 commands (`/sps-select`, `/sps-inject`, `/sps-new`, `/sps-edit`, `/sps-delete`, `/sps-mode`, `/sps-info`, `/sps-path`, `/sps-logs`)
+- All 10 commands (`/sps-select`, `/sps-inject`, `/sps-new`, `/sps-edit`, `/sps-delete`, `/sps-move`, `/sps-mode`, `/sps-info`, `/sps-path`, `/sps-logs`)
 
 The gallery index page (https://pi.dev/packages) is regenerated periodically by the pi-mono maintainers; it may take 1–24 hours for a brand-new package (or new version) to appear there. The direct link works immediately.
 

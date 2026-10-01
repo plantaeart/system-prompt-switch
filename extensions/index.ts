@@ -87,6 +87,14 @@ export default function systemPromptSwitchExtension(pi: ExtensionAPI): void {
 		},
 	});
 
+	pi.registerCommand(ExtensionCommand.MOVE, {
+		description: EXTENSION_COMMAND_CATALOG[ExtensionCommand.MOVE].description,
+		handler: async (_args: string, ctx: ExtensionCommandContext) => {
+			const sessionId = bindHost(ctx);
+			await service.movePrompt(sessionId);
+		},
+	});
+
 	pi.registerCommand(ExtensionCommand.MODE, {
 		description: EXTENSION_COMMAND_CATALOG[ExtensionCommand.MODE].description,
 		handler: async (args: string, ctx: ExtensionCommandContext) => {

@@ -1,6 +1,6 @@
 {
   "name": "system-prompt-switch",
-  "version": "0.9.10",
+  "version": "0.10.0",
   "description": "Pi extension to manage custom system prompts per session with switch, modal selection, and CRUD commands",
   "type": "module",
   "main": "extensions/index.ts",

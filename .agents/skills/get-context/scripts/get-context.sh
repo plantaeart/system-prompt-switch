@@ -49,6 +49,7 @@ cat << 'EOF'
   • /sps-edit   : Edit an existing system prompt in OMP's built-in editor
   • /sps-path   : Display absolute local and global file paths for system prompts
   • /sps-delete : Delete an existing prompt file
+  • /sps-move   : Move a prompt file to another scope (local, pi, omp)
   • /sps-mode   : Toggle or set prompt injection mode (append | replace)
   • /sps-info   : Display current session prompt, mode, and session ID
   • /sps-logs   : Display recent session logs and live tail command

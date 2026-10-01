@@ -4,6 +4,7 @@ export enum ExtensionCommand {
 	NEW = "sps-new",
 	EDIT = "sps-edit",
 	DELETE = "sps-delete",
+	MOVE = "sps-move",
 	MODE = "sps-mode",
 	INFO = "sps-info",
 	PATH = "sps-path",
@@ -46,6 +47,12 @@ export const EXTENSION_COMMAND_CATALOG: Record<
 		command: ExtensionCommand.DELETE,
 		description: "Delete an existing system prompt file",
 		usage: "/sps-delete",
+	},
+	[ExtensionCommand.MOVE]: {
+		command: ExtensionCommand.MOVE,
+		description:
+			"Move an existing system prompt file to another scope (local, global pi, global omp)",
+		usage: "/sps-move",
 	},
 	[ExtensionCommand.MODE]: {
 		command: ExtensionCommand.MODE,
