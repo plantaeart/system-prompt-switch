@@ -65,7 +65,16 @@ Demo GIFs:
 - **Stack multiple prompts** — `/sps-inject` adds prompts cumulatively. `[global] <system-prompt-name>.md + [local] project-rules.md` is a valid active state.
 - **Above-editor banner** — the active prompt is rendered directly above your input prompt so you never forget which one is loaded.
 - **Self-describing extension context** — every resolved prompt includes a leading block that tells the LLM what this extension is, where prompt files live, and how to inspect/change them. The block is loaded from `assets/templates/extension-context.md` so you can tweak the wording without touching code.
-- **Startup modal** — on terminal launch or `/new`, pick `(None)`, an existing prompt, or create a new one in either scope.
+- **Startup modal** — on terminal launch, pick `(None)`, an existing prompt, or create one. Enabled by default; set `promptOnStartup` to `false` to skip it while retaining `/sps-select` and other commands:
+  - **OMP:** `~/.omp/agent/config.yml`
+    ```yaml
+    systemPromptSwitch:
+      promptOnStartup: false
+    ```
+  - **Pi:** `~/.pi/agent/extensions/system-prompt-switch.json`
+    ```json
+    { "promptOnStartup": false }
+    ```
 - **Merge modes** — `append` (default, safe) keeps base instructions; `replace` uses your prompt as the base while preserving tools, skills, and project context.
 - **Live logging** to `~/.pi/agent/logs/system-prompt-switch.log` / `~/.omp/agent/logs/system-prompt-switch.log`, with `/sps-logs [lines]` inside the session.
 

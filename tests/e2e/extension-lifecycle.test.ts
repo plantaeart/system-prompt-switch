@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { ExtensionEventType } from "../../src/core/types/extension-event-type.type";
 import { SessionStartReason } from "../../src/core/types/session-start-reason.type";
@@ -16,20 +16,49 @@ import {
 /** The detected host, so the suite passes whichever binary the machine runs. */
 const HOST_SCOPE = globalScopeFor(detectHost());
 const HOST_LABEL = HOST_SCOPE === PromptScope.GlobalOmp ? "omp" : "pi";
+let promptOnStartupSetting: OmpSetting | undefined;
+let registeredPromptOnStartupSetting: { id: string; type: string; default: boolean } | undefined;
+
+interface OmpSetting {
+	get(scope: unknown): unknown;
+}
+
+mock.module("@earendil-works/pi-coding-agent/config/registry", () => ({
+	lookup: () => promptOnStartupSetting,
+	register: (definition: { id: string; type: string; default: boolean }) => {
+		registeredPromptOnStartupSetting = definition;
+		return {
+			get: (scope: unknown) => {
+				if (scope && typeof scope === "object" && "promptOnStartup" in scope) {
+					return scope.promptOnStartup;
+				}
+				return undefined;
+			},
+		};
+	},
+}));
+
 import systemPromptSwitchExtension from "../../extensions/index";
 
 describe("Extension Lifecycle E2E", () => {
 	let tempDir: string;
 	let promptsDir: string;
 	let stateDir: string;
-
+	let piAgentDir: string;
+	let previousPiAgentDir: string | undefined;
 	beforeEach(() => {
+		promptOnStartupSetting = undefined;
+		registeredPromptOnStartupSetting = undefined;
+		previousPiAgentDir = process.env.PI_CODING_AGENT_DIR;
 		tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "sps-e2e-"));
 		promptsDir = path.join(tempDir, "prompts");
 		stateDir = path.join(tempDir, "state");
+		piAgentDir = path.join(tempDir, "pi-agent");
 
 		fs.mkdirSync(promptsDir, { recursive: true });
 		fs.mkdirSync(stateDir, { recursive: true });
+		fs.mkdirSync(path.join(piAgentDir, "extensions"), { recursive: true });
+		process.env.PI_CODING_AGENT_DIR = piAgentDir;
 		process.env.SPS_PROMPT_DIR = promptsDir;
 		process.env.SPS_STATE_PATH = path.join(stateDir, "sessions.json");
 
@@ -44,6 +73,11 @@ describe("Extension Lifecycle E2E", () => {
 		delete process.env.SPS_PROMPT_DIR;
 		delete process.env.SPS_STATE_PATH;
 		delete process.env.SPS_START_PICKER;
+		if (previousPiAgentDir === undefined) {
+			delete process.env.PI_CODING_AGENT_DIR;
+		} else {
+			process.env.PI_CODING_AGENT_DIR = previousPiAgentDir;
+		}
 		try {
 			fs.rmSync(tempDir, { recursive: true, force: true });
 		} catch {
@@ -265,6 +299,112 @@ describe("Extension Lifecycle E2E", () => {
 
 		await asked.promise;
 		expect(selectCalls).toBe(1);
+	});
+
+	it("does not open the OMP-configured startup selector", async () => {
+		const eventHandlers = new Map<string, ((e: unknown, c: unknown) => unknown)[]>();
+		const settings = { promptOnStartup: false };
+		const mockPi = {
+			registerCommand() {},
+			registerShortcut() {},
+			on(event: string, handler: (e: unknown, c: unknown) => unknown) {
+				const list = eventHandlers.get(event) ?? [];
+				list.push(handler);
+				eventHandlers.set(event, list);
+			},
+			appendEntry() {},
+			pi: { settings },
+		} as unknown as ExtensionAPI;
+
+		systemPromptSwitchExtension(mockPi);
+
+		let selectCalls = 0;
+		let currentWidget: string[] | undefined;
+		const widgetWritten = Promise.withResolvers<void>();
+		const mockCtx = {
+			hasUI: true,
+			cwd: tempDir,
+			sessionManager: {
+				getSessionId: () => "sess-no-startup-prompt",
+				getEntries: () => [],
+			},
+			ui: {
+				select: async () => {
+					selectCalls++;
+					return undefined;
+				},
+				notify: () => {},
+				setWidget: (_key: string, content: string[] | undefined) => {
+					currentWidget = content;
+					if (content) widgetWritten.resolve();
+				},
+			},
+		} as unknown as ExtensionContext;
+
+		for (const h of eventHandlers.get(ExtensionEventType.SessionStart)!) {
+			await h({ type: ExtensionEventType.SessionStart }, mockCtx);
+		}
+		await widgetWritten.promise;
+
+		expect(registeredPromptOnStartupSetting).toEqual({
+			id: "systemPromptSwitch.promptOnStartup",
+			type: "boolean",
+			default: true,
+		});
+		expect(selectCalls).toBe(0);
+		expect(currentWidget?.[0]).toContain("Active Prompt: (none)");
+	});
+
+	it("does not open the Pi-configured startup selector", async () => {
+		fs.writeFileSync(
+			path.join(piAgentDir, "extensions", "system-prompt-switch.json"),
+			JSON.stringify({ promptOnStartup: false }),
+			"utf-8",
+		);
+		const eventHandlers = new Map<string, ((e: unknown, c: unknown) => unknown)[]>();
+		const mockPi = {
+			registerCommand() {},
+			registerShortcut() {},
+			on(event: string, handler: (e: unknown, c: unknown) => unknown) {
+				const list = eventHandlers.get(event) ?? [];
+				list.push(handler);
+				eventHandlers.set(event, list);
+			},
+			appendEntry() {},
+		} as unknown as ExtensionAPI;
+
+		systemPromptSwitchExtension(mockPi);
+
+		let selectCalls = 0;
+		let currentWidget: string[] | undefined;
+		const widgetWritten = Promise.withResolvers<void>();
+		const mockCtx = {
+			hasUI: true,
+			cwd: tempDir,
+			sessionManager: {
+				getSessionId: () => "sess-pi-no-startup-prompt",
+				getEntries: () => [],
+			},
+			ui: {
+				select: async () => {
+					selectCalls++;
+					return undefined;
+				},
+				notify: () => {},
+				setWidget: (_key: string, content: string[] | undefined) => {
+					currentWidget = content;
+					if (content) widgetWritten.resolve();
+				},
+			},
+		} as unknown as ExtensionContext;
+
+		for (const h of eventHandlers.get(ExtensionEventType.SessionStart)!) {
+			await h({ type: ExtensionEventType.SessionStart }, mockCtx);
+		}
+		await widgetWritten.promise;
+
+		expect(selectCalls).toBe(0);
+		expect(currentWidget?.[0]).toContain("Active Prompt: (none)");
 	});
 
 	it("does not ask on a startup reason either", async () => {
