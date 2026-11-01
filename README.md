@@ -115,6 +115,8 @@ Legacy prompts in `~/.pi/agent/system-prompts/` are auto-migrated on first run.
 
 `scope` is `local`, `global-omp` or `global-pi`; `mode` is `append` or `replace`. To change it, send `/sps-select <name>` or `/sps-mode append|replace` as a prompt in that session.
 
+Over ACP the startup modal does not block: the client may send the first message before the user picks, so that message runs without the prompt. A client that picks the prompt itself starts the host with `SPS_START_PICKER=0`: no startup modal, then it sends `/sps-select <name>` before the first message. Unset (the default, e.g. the terminal) keeps the modal.
+
 ---
 
 ## Editor shortcut note

@@ -194,7 +194,11 @@ export default function systemPromptSwitchExtension(pi: ExtensionAPI): void {
 		// ponytail: decide by the reasons that SUPPRESS the prompt, never by
 		// matching one that shows it. Anything else - including an absent reason -
 		// is a session we should ask about.
-		const skipped = SKIPPED_SESSION_REASONS.has(event.reason as string);
+		// SPS_START_PICKER=0: a client (e.g. a chat UI over ACP) picks the prompt with
+		// /sps-select itself; over ACP the picker would not block the first message.
+		const skipped =
+			SKIPPED_SESSION_REASONS.has(event.reason as string) ||
+			process.env.SPS_START_PICKER?.trim() === "0";
 		logger.info("SESSION_START", "session_start event received", {
 			// reason is optional: a plain launch has been observed sending none, so
 			// never rely on it being populated.
