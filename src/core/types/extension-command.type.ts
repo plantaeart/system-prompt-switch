@@ -24,8 +24,8 @@ export const EXTENSION_COMMAND_CATALOG: Record<
 	[ExtensionCommand.SELECT]: {
 		command: ExtensionCommand.SELECT,
 		description:
-			"Select active system prompt for this session (or None / Default)",
-		usage: "/sps-select",
+			"Select active system prompt for this session (or None / Default); pass a name to skip the picker",
+		usage: "/sps-select [none|<name>|[local|omp|pi] <name>]",
 	},
 	[ExtensionCommand.INJECT]: {
 		command: ExtensionCommand.INJECT,

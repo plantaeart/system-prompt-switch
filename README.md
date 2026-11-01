@@ -75,7 +75,7 @@ Demo GIFs:
 
 | Command | What it does |
 |---|---|
-| `/sps-select` | Pick the active prompt (or `(None / Default)`) |
+| `/sps-select [none\|<name>\|[local\|omp\|pi] <name>]` | Pick the active prompt (or `(None / Default)`); with an argument it selects directly, no picker |
 | `/sps-inject` | Stack or toggle multiple prompts for this session |
 | `/sps-new` | Create a new `.md` prompt (choose local vs global) |
 | `/sps-edit` | Edit an existing prompt in the built-in editor |
@@ -97,6 +97,23 @@ Demo GIFs:
 | **Session state** | `~/.<host>/agent/state/system-prompt-switch/sessions.json` | `SPS_STATE_PATH` |
 
 Legacy prompts in `~/.pi/agent/system-prompts/` are auto-migrated on first run.
+
+### Reading the active prompt from another app
+
+`sessions.json` is a public contract for clients (for example a chat UI driving omp over ACP): one entry per session ID, fields are only ever added.
+
+```json
+{
+  "<sessionId>": {
+    "activePrompts": [{ "name": "reviewer.md", "scope": "global-omp" }],
+    "mode": "append",
+    "enabled": true,
+    "decided": true
+  }
+}
+```
+
+`scope` is `local`, `global-omp` or `global-pi`; `mode` is `append` or `replace`. To change it, send `/sps-select <name>` or `/sps-mode append|replace` as a prompt in that session.
 
 ---
 

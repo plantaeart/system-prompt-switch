@@ -12,6 +12,7 @@ import type {
 	CustomPromptChunk,
 } from "./types/build-prompt-input.type";
 import type { MergeMode } from "./types/merge-mode.type";
+import type { PromptFileInfo } from "./types/prompt-file-info.type";
 import { globalScopeFor, PromptScope } from "./types/prompt-scope.type";
 import type { SessionPromptConfig } from "./types/session-prompt-config.type";
 import type { SessionStatePort } from "../ports/session-state.port";
@@ -202,10 +203,10 @@ export class PromptService {
 		return { name: clean };
 	}
 
-	async selectPrompt(sessionId: string): Promise<string | null | undefined> {
-		const config = await this.getCurrentConfig(sessionId);
-		const files = await this.storage.list();
-
+	private pickPrompt(
+		config: ResolvedSessionPromptConfig,
+		files: PromptFileInfo[],
+	): Promise<string | undefined> {
 		const options: string[] = [
 			config.file === null && config.activePrompts.length === 0
 				? `${NONE_OPTION}  ✓`
@@ -220,11 +221,35 @@ export class PromptService {
 				file.name === config.file && (!config.scope || config.scope === file.scope);
 			options.push(isSelected ? `${formatted}  ✓` : formatted);
 		}
+		return this.ui.select("Select System Prompt (Session Scoped)", options);
+	}
 
-		const choice = await this.ui.select(
-			"Select System Prompt (Session Scoped)",
-			options,
+	/** Maps a `/sps-select` argument to the picker option it stands for; warns and returns undefined when none or several match. */
+	private resolveSelectArg(arg: string, files: PromptFileInfo[]): string | undefined {
+		if (arg.toLowerCase() === "none") return NONE_OPTION;
+		const { name, scope } = this.parseOption(arg);
+		const matches = files.filter((f) => f.name === name && (!scope || f.scope === scope));
+		if (matches.length === 1) return `[${formatScope(matches[0].scope)}] ${matches[0].name}`;
+		this.ui.notify(
+			matches.length
+				? `"${name}" exists in several scopes; use [local|omp|pi] ${name}.`
+				: `No system prompt named "${arg}".`,
+			"warning",
 		);
+		return undefined;
+	}
+
+	/**
+	 * `arg` selects without the picker: `none`, `<name>` or `[local|omp|pi] <name>`
+	 * (the picker's own labels), so a client without a terminal can switch prompts.
+	 */
+	async selectPrompt(sessionId: string, arg = ""): Promise<string | null | undefined> {
+		const config = await this.getCurrentConfig(sessionId);
+		const files = await this.storage.list();
+
+		const choice = arg.trim()
+			? this.resolveSelectArg(arg.trim(), files)
+			: await this.pickPrompt(config, files);
 		if (!choice) return undefined;
 
 		const cleanChoice = choice.replace(/\s+✓$/, "").trim();

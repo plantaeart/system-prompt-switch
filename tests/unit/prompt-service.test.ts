@@ -230,6 +230,66 @@ describe("PromptService", () => {
 		expect(ui.currentWidget?.[0]).toContain(`[${HOST_LABEL}] reviewer.md (append mode)`);
 	});
 
+	it("selects a prompt named in the argument without opening the picker", async () => {
+		storage.files.set(FixturePrompt.Reviewer, "You are a reviewer.");
+
+		const result = await service.selectPrompt("sess-1", FixturePrompt.Reviewer);
+
+		expect(result).toBe(FixturePrompt.Reviewer);
+		expect(ui.selectCalls).toBe(0);
+		const updated = await service.getCurrentConfig("sess-1");
+		expect(updated.activePrompts).toEqual([
+			{ name: FixturePrompt.Reviewer, scope: HOST_SCOPE },
+		]);
+		expect(updated.decided).toBe(true);
+	});
+
+	it("uses the [scope] prefix of the argument to pick between same-named prompts", async () => {
+		storage.files.set(FixturePrompt.Duplicate, "global");
+		storage.localFiles.set(FixturePrompt.Duplicate, "local");
+
+		await service.selectPrompt("sess-1", `[local] ${FixturePrompt.Duplicate}`);
+
+		const updated = await service.getCurrentConfig("sess-1");
+		expect(updated.activePrompts).toEqual([
+			{ name: FixturePrompt.Duplicate, scope: PromptScope.Local },
+		]);
+	});
+
+	it("leaves the session unchanged when the argument matches several scopes", async () => {
+		storage.files.set(FixturePrompt.Duplicate, "global");
+		storage.localFiles.set(FixturePrompt.Duplicate, "local");
+
+		const result = await service.selectPrompt("sess-1", FixturePrompt.Duplicate);
+
+		expect(result).toBeUndefined();
+		expect(ui.selectCalls).toBe(0);
+		expect((await service.getCurrentConfig("sess-1")).activePrompts).toEqual([]);
+		expect(ui.notifications.at(-1)?.type).toBe("warning");
+	});
+
+	it("leaves the session unchanged when the argument names no prompt", async () => {
+		storage.files.set(FixturePrompt.Reviewer, "You are a reviewer.");
+		await service.selectPrompt("sess-1", FixturePrompt.Reviewer);
+
+		const result = await service.selectPrompt("sess-1", "missing.md");
+
+		expect(result).toBeUndefined();
+		expect((await service.getCurrentConfig("sess-1")).file).toBe(FixturePrompt.Reviewer);
+		expect(ui.notifications.at(-1)?.type).toBe("warning");
+	});
+
+	it("clears the prompt when the argument is none", async () => {
+		storage.files.set(FixturePrompt.Reviewer, "You are a reviewer.");
+		await service.selectPrompt("sess-1", FixturePrompt.Reviewer);
+
+		const result = await service.selectPrompt("sess-1", "none");
+
+		expect(result).toBeNull();
+		expect(ui.selectCalls).toBe(0);
+		expect((await service.getCurrentConfig("sess-1")).activePrompts).toEqual([]);
+	});
+
 	it("creates a new prompt and can activate it for session", async () => {
 		ui.inputValue = "security-auditor";
 		ui.selectChoices = [destinationFor(HOST_SCOPE)];
