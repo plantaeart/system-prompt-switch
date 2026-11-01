@@ -43,6 +43,7 @@ describe("Extension Lifecycle E2E", () => {
 	afterEach(() => {
 		delete process.env.SPS_PROMPT_DIR;
 		delete process.env.SPS_STATE_PATH;
+		delete process.env.SPS_START_PICKER;
 		try {
 			fs.rmSync(tempDir, { recursive: true, force: true });
 		} catch {
@@ -310,6 +311,53 @@ describe("Extension Lifecycle E2E", () => {
 
 		await asked.promise;
 		expect(selectCalls).toBe(1);
+	});
+
+	it("skips the start picker when SPS_START_PICKER=0 (a client that picks the prompt itself)", async () => {
+		process.env.SPS_START_PICKER = "0";
+		const eventHandlers = new Map<string, ((e: unknown, c: unknown) => unknown)[]>();
+		const mockPi = {
+			registerCommand() {},
+			registerShortcut() {},
+			on(event: string, handler: (e: unknown, c: unknown) => unknown) {
+				const list = eventHandlers.get(event) ?? [];
+				list.push(handler);
+				eventHandlers.set(event, list);
+			},
+			appendEntry() {},
+		} as unknown as ExtensionAPI;
+
+		systemPromptSwitchExtension(mockPi);
+
+		let selectCalls = 0;
+		// The status refresh is detached: wait for the widget write, not a duration.
+		const widgetWritten = Promise.withResolvers<void>();
+		const mockCtx = {
+			hasUI: true,
+			cwd: tempDir,
+			sessionManager: {
+				getSessionId: () => "sess-no-picker",
+				getEntries: () => [],
+			},
+			ui: {
+				select: async () => {
+					selectCalls++;
+					return undefined;
+				},
+				notify: () => {},
+				setWidget: (_key: string, content: string[] | undefined) => {
+					if (content) widgetWritten.resolve();
+				},
+			},
+		} as unknown as ExtensionContext;
+
+		// No reason: without the variable this is exactly the session that asks.
+		for (const h of eventHandlers.get(ExtensionEventType.SessionStart)!) {
+			await h({ type: ExtensionEventType.SessionStart }, mockCtx);
+		}
+
+		await widgetWritten.promise;
+		expect(selectCalls).toBe(0);
 	});
 
 });
