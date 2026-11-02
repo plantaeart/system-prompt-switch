@@ -88,5 +88,5 @@ npx -y skill-check@1.2.0 check --no-security-scan .agents/skills
 
 ## Two things this does not check
 
-- **Bun version.** CI pins Bun 1.4.2; a local run on another version (1.3.x) can pass while CI fails. If CI fails on something `bun run ci` calls green locally, check the Bun version first.
+- **Bun version.** CI pins Bun 1.4.4 (OMP 18.14+ refuses older Bun when `CI` is set); a local run on another version can pass while CI fails. If CI fails on something `bun run ci` calls green locally, check the Bun version first.
 - **Package contents.** `npm pack --dry-run` is not in CI. Run it yourself before `npm publish` — see the `release` skill.
