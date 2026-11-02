@@ -10,6 +10,23 @@ Hexagonal (Ports & Adapters) Pi/OMP extension written in TypeScript, ESM, bundle
 - Node ≥ 22 (for `npm` tooling during publish)
 - Pi or OMP installed and on `PATH` (for the CLI smoke test)
 
+### Nix / direnv (optional, recommended)
+
+`flake.nix` provides everything above in one shell: bun 1.4.4, Node 26, `uv`, and the exact `pi` / `omp` versions CI pins (installed on first entry into `.direnv/host-cli`). CI uses the same shell, so local and CI toolchains match.
+
+```bash
+direnv allow          # once; needs nix + direnv + nix-direnv
+bun install
+bun run ci            # same as CI
+
+nix develop           # no direnv: enter the shell by hand
+nix-direnv-reload     # after deleting .direnv/ or editing flake.nix by hand
+```
+
+- Bump a host CLI: edit `hostCLIs` in `flake.nix` (see the `host-version` skill).
+- Bump bun: edit `bunVersion` and `bunHashes` in `flake.nix` (`nix store prefetch-file <url>` gives each hash). nixpkgs lags bun releases, hence the override.
+- Without Nix, install the requirements above by hand; nothing else depends on it.
+
 ---
 
 ## Layout

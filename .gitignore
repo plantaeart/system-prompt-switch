@@ -40,3 +40,6 @@ dist/
 .env.*
 .pi/
 .omp/
+
+# direnv / nix-direnv cache (also holds the pinned Pi/OMP CLIs)
+.direnv/
