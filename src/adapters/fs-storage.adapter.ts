@@ -123,10 +123,11 @@ export class FsStorageAdapter implements StoragePort {
 			const files: PromptFileInfo[] = [];
 
 			for (const entry of entries) {
-				if (entry.isFile() && entry.name.endsWith(".md")) {
+				if (entry.name.endsWith(".md")) {
 					const fullPath = path.join(dirPath, entry.name);
 					try {
 						const stat = fs.statSync(fullPath);
+						if (!stat.isFile()) continue;
 						files.push({
 							name: entry.name,
 							path: fullPath,

@@ -24,9 +24,9 @@ export enum TestPrompt {
 	PiOnly = "pi-only.md",
 	Targeted = "targeted.md",
 	Dup = "dup.md",
+	Symlinked = "symlinked.md",
 	/** Regression probe proving a scoped adapter never writes to the real home. */
 	LeakProbe = "leak-probe.md",
-
 	// --- session-isolation.test.ts (real FsStorageAdapter on temp dirs) ---
 	Spr1 = "SPR1.md",
 	Spr2 = "SPR2.md",

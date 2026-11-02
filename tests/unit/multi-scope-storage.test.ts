@@ -185,6 +185,20 @@ describe("FsStorageAdapter Multi-Scope", () => {
 			expect(byName.get(`local:${TestPrompt.LocalRules}`)).toBeDefined();
 		});
 
+		it("lists symbolic links to Markdown prompts", async () => {
+			fs.symlinkSync(TestPrompt.OmpOnly, path.join(ompDir, TestPrompt.Symlinked));
+
+			const files = await adapter.list();
+
+			expect(
+				files.find(
+					(file) =>
+						file.name === TestPrompt.Symlinked &&
+						file.scope === PromptScope.GlobalOmp,
+				),
+			).toBeDefined();
+		});
+
 		it("reads each global scope from its own host directory", async () => {
 			expect(await adapter.read(TestPrompt.OmpOnly, PromptScope.GlobalOmp)).toBe("from omp");
 			expect(await adapter.read(TestPrompt.PiOnly, PromptScope.GlobalPi)).toBe("from pi");
