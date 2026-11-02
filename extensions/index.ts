@@ -1,3 +1,6 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type {
 	BeforeAgentStartEvent,
 	BeforeAgentStartEventResult,
@@ -22,11 +25,60 @@ import { ExtensionEventType } from "../src/core/types/extension-event-type.type"
 import { SKIPPED_SESSION_REASONS } from "../src/core/types/session-start-reason.type";
 import type { MergeMode } from "../src/core/types/merge-mode.type";
 
+type OmpSetting = { get(scope: unknown): unknown };
+
+type OmpSettingsRegistry = {
+	lookup(id: string): OmpSetting | undefined;
+	register(definition: { id: string; type: "boolean"; default: boolean }): OmpSetting;
+};
+
+function hasOmpSettings(pi: ExtensionAPI): pi is ExtensionAPI & { pi: { settings: unknown } } {
+	return "pi" in pi && typeof pi.pi === "object" && pi.pi !== null && "settings" in pi.pi;
+}
+
+function promptOnStartupFromPiConfig(): boolean {
+	try {
+		const config: unknown = JSON.parse(
+			fs.readFileSync(path.join(getAgentDir(), "extensions", "system-prompt-switch.json"), "utf-8"),
+		);
+		if (
+			config &&
+			typeof config === "object" &&
+			"promptOnStartup" in config &&
+			typeof config.promptOnStartup === "boolean"
+		) {
+			return config.promptOnStartup;
+		}
+	} catch {
+		// Missing or malformed optional configuration keeps the default.
+	}
+	return true;
+}
+
+async function promptOnStartupFromConfig(pi: ExtensionAPI): Promise<boolean> {
+	if (!hasOmpSettings(pi)) return promptOnStartupFromPiConfig();
+	const settings = pi.pi.settings;
+
+	const registry = (await import(
+		// @ts-expect-error -- OMP resolves this legacy package subpath at runtime.
+		"@earendil-works/pi-coding-agent/config/registry"
+	)) as OmpSettingsRegistry;
+	const setting =
+		registry.lookup("systemPromptSwitch.promptOnStartup") ??
+		registry.register({
+			id: "systemPromptSwitch.promptOnStartup",
+			type: "boolean",
+			default: true,
+		});
+	return setting.get(settings) === true;
+}
+
 export default function systemPromptSwitchExtension(pi: ExtensionAPI): void {
 	const storage = new FsStorageAdapter();
 	const sessionState = new SessionStateAdapter();
 	const uiAdapter = new PiUIAdapter();
 	const service = new PromptService(storage, sessionState, uiAdapter);
+	const promptOnStartup = promptOnStartupFromConfig(pi);
 
 	// Wire session entry persistence into Pi session JSONL
 	sessionState.setAppendEntryFn((customType, data) => {
@@ -188,7 +240,7 @@ export default function systemPromptSwitchExtension(pi: ExtensionAPI): void {
 
 	// --- Lifecycle Hooks ---
 
-	pi.on(ExtensionEventType.SessionStart, (event: SessionStartEvent, ctx: ExtensionContext) => {
+	pi.on(ExtensionEventType.SessionStart, async (event: SessionStartEvent, ctx: ExtensionContext) => {
 		const sessionId = bindHost(ctx);
 
 		// ponytail: decide by the reasons that SUPPRESS the prompt, never by
@@ -196,7 +248,9 @@ export default function systemPromptSwitchExtension(pi: ExtensionAPI): void {
 		// is a session we should ask about.
 		// SPS_START_PICKER=0: a client (e.g. a chat UI over ACP) picks the prompt with
 		// /sps-select itself; over ACP the picker would not block the first message.
+		// promptOnStartup=false: the user opted out in the Pi/OMP config.
 		const skipped =
+			!(await promptOnStartup) ||
 			SKIPPED_SESSION_REASONS.has(event.reason as string) ||
 			process.env.SPS_START_PICKER?.trim() === "0";
 		logger.info("SESSION_START", "session_start event received", {
