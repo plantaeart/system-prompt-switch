@@ -9,6 +9,12 @@ bun.lock
 # Agent scratch / IDE noise
 .agents/
 
+# Nix / direnv dev environment
+flake.nix
+flake.lock
+.envrc
+.direnv/
+
 # VCS
 .git/
 .gitignore

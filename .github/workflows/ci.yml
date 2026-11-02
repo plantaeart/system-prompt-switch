@@ -35,36 +35,29 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.4.4
+      # Same dev shell contributors get from direnv: bun, node, and the pinned
+      # Pi/OMP CLIs (flake.nix is the single source of the pins). The e2e smoke
+      # test spawns the real hosts and detectHost() reads the environment they
+      # set, so the run exercises the genuine code path instead of a faked one.
+      - name: Install Nix
+        uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
 
-      - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: '24.20.0'
-
-      # The e2e smoke test spawns a real host CLI, and detectHost() reads the
-      # environment the real host sets. Installing both makes the run exercise
-      # the genuine code path instead of a faked one.
-      - name: Install Pi and OMP CLIs
-        # Pinned, not @latest: a floating tag means a green badge says nothing about
-        # tomorrow. `.agents/skills/host-version/scripts/check-host-versions.sh`
-        # reports when a newer release exists.
-        run: npm install -g @earendil-works/pi-coding-agent@1.5.0 @oh-my-pi/pi-coding-agent@18.15.0
+      # The smoke test skips a host missing from PATH, so a failed CLI install
+      # in the shell hook would otherwise pass CI with nothing tested.
+      - name: Verify Pi and OMP CLIs
+        run: nix develop -c bash -c 'pi --version && omp --version'
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: nix develop -c bun install --frozen-lockfile
 
       - name: Lint
-        run: bun run lint
+        run: nix develop -c bun run lint
 
       - name: Type-check
-        run: bun run typecheck
+        run: nix develop -c bun run typecheck
 
       - name: Test
-        run: bun test
+        run: nix develop -c bun test
 
   lint-skills:
     runs-on: ubuntu-24.04
@@ -74,20 +67,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-        with:
-          uv-version: '0.12.9'
-
-      - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: '24.20.0'
-
-      - name: Install skills-ref tool
-        run: uv tool install git+https://github.com/agentskills/agentskills.git@69ef37e9424c0a7ea9dd2293b559e43ec8176379#subdirectory=skills-ref
+      - name: Install Nix
+        uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
 
       # Same script `bun run validate:skills` runs locally, so CI and a
-      # contributor can never validate against different rules.
+      # contributor can never validate against different rules. skills-ref is
+      # not in nixpkgs, so it is installed with uv (pinned by commit) inside the shell.
       - name: Validate skills
-        run: bash .agents/skills/ci-check/scripts/validate-skills.sh
+        run: |
+          nix develop -c bash -c '
+            uv tool install git+https://github.com/agentskills/agentskills.git@69ef37e9424c0a7ea9dd2293b559e43ec8176379#subdirectory=skills-ref
+            PATH="$(uv tool dir --bin):$PATH" bash .agents/skills/ci-check/scripts/validate-skills.sh
+          '

@@ -15,7 +15,7 @@ set -uo pipefail
 
 # scripts/ -> host-version/ -> skills/ -> .agents/ -> repo root
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
-WORKFLOW="${ROOT_DIR}/.github/workflows/ci.yml"
+WORKFLOW="${ROOT_DIR}/flake.nix"
 
 # The two packages CI installs, and the newest tag on npm.
 declare -a PACKAGES=(

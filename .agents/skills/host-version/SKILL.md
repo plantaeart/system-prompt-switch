@@ -32,21 +32,23 @@ Read the **LOCAL** block as a second signal. If your machine is behind the pin, 
 
 ## Where the pins live
 
-Both are on one line in `.github/workflows/ci.yml`:
+Both are in the `hostCLIs` list in `flake.nix`; CI installs them through the Nix dev shell, and so does `direnv`:
 
-```yaml
-- name: Install Pi and OMP CLIs
-  run: npm install -g @earendil-works/pi-coding-agent@0.99.1 @oh-my-pi/pi-coding-agent@18.4.5
+```nix
+hostCLIs = [
+  "@earendil-works/pi-coding-agent@1.5.0"
+  "@oh-my-pi/pi-coding-agent@18.15.0"
+];
 ```
 
-The script parses that line; it does not keep its own copy. Change the workflow and the script follows.
+The script greps these `name@version` strings; it does not keep its own copy. Change `flake.nix` and the script follows.
 
 ## Adopting a new host release
 
 1. **Check the release notes** for breaking extension-API changes. The `ExtensionContext` surface, `before_agent_start`, `registerCommand`, and the `pi.on` events are what this extension depends on. A major bump deserves a read before you install it.
-2. **Install locally** so you can test against the real host:
+2. **Install locally** so you can test against the real host: edit `hostCLIs` in `flake.nix` to the new version, then reload the shell (a plain `npm install -g` would not win over the pinned copy on `PATH`):
    ```bash
-   npm install -g @oh-my-pi/pi-coding-agent@<new>
+   nix-direnv-reload     # or re-enter `nix develop`
    ```
 3. **Run the suite on both hosts.** The matrix is the point — a host release can break one leg only:
    ```bash
@@ -59,9 +61,9 @@ The script parses that line; it does not keep its own copy. Change the workflow 
    pi  -e ./extensions/index.ts
    ```
    Type `/sps` and check the list. Expect the banner `Active Prompt: [omp] …` under omp and `[pi] …` under pi.
-5. **Update the pins** in `ci.yml` to the new versions.
+5. **Update the pins** in `flake.nix` (`hostCLIs`) to the new versions.
 6. **Re-run the check script** — it should now report `up to date` and exit `0`.
-7. **Commit** the workflow change.
+7. **Commit** the `flake.nix` change.
 
 ## Why both hosts
 
@@ -71,6 +73,6 @@ The script parses that line; it does not keep its own copy. Change the workflow 
 
 The matrix in `ci.yml` lists the `OMPCODE` value per host. A new host needs:
 - a matrix entry,
-- an install line in the `Install Pi and OMP CLIs` step,
+- an entry in `hostCLIs` in `flake.nix`,
 - an entry in `PACKAGES` in the check script,
 - a `HostPlatform` member and a `globalScopeFor` branch in `src/core/types/prompt-scope.type.ts`.
