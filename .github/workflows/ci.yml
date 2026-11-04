@@ -45,19 +45,19 @@ jobs:
       # The smoke test skips a host missing from PATH, so a failed CLI install
       # in the shell hook would otherwise pass CI with nothing tested.
       - name: Verify Pi and OMP CLIs
-        run: nix develop -c bash -c 'pi --version && omp --version'
+        run: nix develop .#e2e -c bash -c 'pi --version && omp --version'
 
       - name: Install dependencies
-        run: nix develop -c bun install --frozen-lockfile
+        run: nix develop .#e2e -c bun install --frozen-lockfile
 
       - name: Lint
-        run: nix develop -c bun run lint
+        run: nix develop .#e2e -c bun run lint
 
       - name: Type-check
-        run: nix develop -c bun run typecheck
+        run: nix develop .#e2e -c bun run typecheck
 
       - name: Test
-        run: nix develop -c bun test
+        run: nix develop .#e2e -c bun test
 
   lint-skills:
     runs-on: ubuntu-24.04
@@ -75,7 +75,7 @@ jobs:
       # not in nixpkgs, so it is installed with uv (pinned by commit) inside the shell.
       - name: Validate skills
         run: |
-          nix develop -c bash -c '
+          nix develop .#e2e -c bash -c '
             uv tool install git+https://github.com/agentskills/agentskills.git@69ef37e9424c0a7ea9dd2293b559e43ec8176379#subdirectory=skills-ref
             PATH="$(uv tool dir --bin):$PATH" bash .agents/skills/ci-check/scripts/validate-skills.sh
           '

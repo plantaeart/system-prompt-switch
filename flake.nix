@@ -1,5 +1,5 @@
 {
-  description = "system-prompt-switch dev shell (bun, node, uv, pinned Pi/OMP CLIs)";
+  description = "system-prompt-switch dev shell (bun, node, uv; `.#e2e` adds pinned Pi/OMP CLIs)";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -13,7 +13,7 @@
       # greps these exact `name@version` strings.
       hostCLIs = [
         "@earendil-works/pi-coding-agent@1.5.0"
-        "@oh-my-pi/pi-coding-agent@18.15.0"
+        "@oh-my-pi/pi-coding-agent@18.16.0"
       ];
 
       # shortcut: nixpkgs lags bun releases, so override to the version CI pinned.
@@ -36,10 +36,15 @@
               inherit (src) hash;
             };
           });
+          packages = [ bun pkgs.nodejs_26 pkgs.uv ];
         in
         {
-          default = pkgs.mkShell {
-            packages = [ bun pkgs.nodejs_26 pkgs.uv ];
+          # Day-to-day development (direnv): no host CLIs installed.
+          default = pkgs.mkShell { inherit packages; };
+
+          # Tests / CI: `nix develop .#e2e`. Adds the pinned Pi/OMP CLIs.
+          e2e = pkgs.mkShell {
+            inherit packages;
 
             # Idempotent: installs the pinned CLIs into .direnv/host-cli once.
             # nix-direnv caches this hook; after deleting .direnv run `nix-direnv-reload`.

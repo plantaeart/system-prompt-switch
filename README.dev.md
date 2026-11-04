@@ -12,14 +12,15 @@ Hexagonal (Ports & Adapters) Pi/OMP extension written in TypeScript, ESM, bundle
 
 ### Nix / direnv (optional, recommended)
 
-`flake.nix` provides everything above in one shell: bun 1.4.4, Node 26, `uv`, and the exact `pi` / `omp` versions CI pins (installed on first entry into `.direnv/host-cli`). CI uses the same shell, so local and CI toolchains match.
+`flake.nix` provides two shells. The default (used by direnv) has bun 1.4.4, Node 26 and `uv`. The `e2e` shell adds the exact `pi` / `omp` versions CI pins (installed on first entry into `.direnv/host-cli`); CI uses it, so local and CI toolchains match. Run the e2e tests with `nix develop .#e2e -c bun test`.
 
 ```bash
 direnv allow          # once; needs nix + direnv + nix-direnv
 bun install
 bun run ci            # same as CI
 
-nix develop           # no direnv: enter the shell by hand
+nix develop           # no direnv: enter the light shell by hand
+nix develop .#e2e     # shell with pinned pi / omp for the e2e tests
 nix-direnv-reload     # after deleting .direnv/ or editing flake.nix by hand
 ```
 

@@ -29,6 +29,11 @@ mock.module("@earendil-works/pi-coding-agent/config/registry", () => ({
 		registeredPromptOnStartupSetting = definition;
 		return {
 			get: (scope: unknown) => {
+				// The host's real Settings singleton throws like this outside a
+				// session, e.g. while `omp plugin install` loads the new extension.
+				if (scope && typeof scope === "object" && "uninitialized" in scope) {
+					throw new Error("Settings not initialized. Call Settings.init() first.");
+				}
 				if (scope && typeof scope === "object" && "promptOnStartup" in scope) {
 					return scope.promptOnStartup;
 				}
@@ -353,6 +358,56 @@ describe("Extension Lifecycle E2E", () => {
 		});
 		expect(selectCalls).toBe(0);
 		expect(currentWidget?.[0]).toContain("Active Prompt: (none)");
+	});
+
+	it("loads without touching OMP settings, and falls back to asking when they are uninitialized", async () => {
+		const unhandled: unknown[] = [];
+		const onUnhandled = (reason: unknown) => unhandled.push(reason);
+		process.on("unhandledRejection", onUnhandled);
+
+		const eventHandlers = new Map<string, ((e: unknown, c: unknown) => unknown)[]>();
+		const mockPi = {
+			registerCommand() {},
+			registerShortcut() {},
+			on(event: string, handler: (e: unknown, c: unknown) => unknown) {
+				const list = eventHandlers.get(event) ?? [];
+				list.push(handler);
+				eventHandlers.set(event, list);
+			},
+			appendEntry() {},
+			pi: { settings: { uninitialized: true } },
+		} as unknown as ExtensionAPI;
+
+		try {
+			// Loading is all `omp plugin install` does with the extension: no
+			// session_start follows, so nothing may reject at load time.
+			systemPromptSwitchExtension(mockPi);
+			// Rejections are reported on a later macrotask.
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			expect(unhandled).toEqual([]);
+
+			const asked = Promise.withResolvers<void>();
+			const mockCtx = {
+				hasUI: true,
+				cwd: tempDir,
+				sessionManager: { getSessionId: () => "sess-uninit-settings", getEntries: () => [] },
+				ui: {
+					select: async () => {
+						asked.resolve();
+						return undefined;
+					},
+					notify: () => {},
+					setWidget: () => {},
+				},
+			} as unknown as ExtensionContext;
+
+			for (const h of eventHandlers.get(ExtensionEventType.SessionStart)!) {
+				await h({ type: ExtensionEventType.SessionStart }, mockCtx);
+			}
+			await asked.promise;
+		} finally {
+			process.off("unhandledRejection", onUnhandled);
+		}
 	});
 
 	it("does not open the Pi-configured startup selector", async () => {
