@@ -69,9 +69,17 @@ beforeAll(async () => {
 				});
 			}
 			if (pathname === `/${PACKAGE}.tgz`) return new Response(tarball);
+			// omp fires many requests at once; the registry resets some connections, so retry.
+			let upstream: Response | undefined;
+			for (let attempt = 1; !upstream; attempt++) {
+				try {
+					upstream = await fetch(`https://registry.npmjs.org${pathname}`);
+				} catch (error) {
+					if (attempt === 5) throw error;
+				}
+			}
 			// Re-wrapped: fetch has already decoded the body, so passing the upstream
 			// content-encoding through would make the client gunzip plain bytes.
-			const upstream = await fetch(`https://registry.npmjs.org${pathname}`);
 			return new Response(await upstream.arrayBuffer(), {
 				status: upstream.status,
 				headers: { "content-type": upstream.headers.get("content-type") ?? "application/json" },
