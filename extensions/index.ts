@@ -57,20 +57,25 @@ function promptOnStartupFromPiConfig(): boolean {
 
 async function promptOnStartupFromConfig(pi: ExtensionAPI): Promise<boolean> {
 	if (!hasOmpSettings(pi)) return promptOnStartupFromPiConfig();
-	const settings = pi.pi.settings;
-
-	const registry = (await import(
-		// @ts-expect-error -- OMP resolves this legacy package subpath at runtime.
-		"@earendil-works/pi-coding-agent/config/registry"
-	)) as OmpSettingsRegistry;
-	const setting =
-		registry.lookup("systemPromptSwitch.promptOnStartup") ??
-		registry.register({
-			id: "systemPromptSwitch.promptOnStartup",
-			type: "boolean",
-			default: true,
-		});
-	return setting.get(settings) === true;
+	try {
+		const settings = pi.pi.settings;
+		const registry = (await import(
+			// @ts-expect-error -- OMP resolves this legacy package subpath at runtime.
+			"@earendil-works/pi-coding-agent/config/registry"
+		)) as OmpSettingsRegistry;
+		const setting =
+			registry.lookup("systemPromptSwitch.promptOnStartup") ??
+			registry.register({
+				id: "systemPromptSwitch.promptOnStartup",
+				type: "boolean",
+				default: true,
+			});
+		return setting.get(settings) === true;
+	} catch {
+		// The host's Settings are not initialised outside a session (for example
+		// while `omp plugin install` loads this extension), so keep the default.
+		return true;
+	}
 }
 
 export default function systemPromptSwitchExtension(pi: ExtensionAPI): void {
@@ -78,7 +83,6 @@ export default function systemPromptSwitchExtension(pi: ExtensionAPI): void {
 	const sessionState = new SessionStateAdapter();
 	const uiAdapter = new PiUIAdapter();
 	const service = new PromptService(storage, sessionState, uiAdapter);
-	const promptOnStartup = promptOnStartupFromConfig(pi);
 
 	// Wire session entry persistence into Pi session JSONL
 	sessionState.setAppendEntryFn((customType, data) => {
@@ -250,7 +254,7 @@ export default function systemPromptSwitchExtension(pi: ExtensionAPI): void {
 		// /sps-select itself; over ACP the picker would not block the first message.
 		// promptOnStartup=false: the user opted out in the Pi/OMP config.
 		const skipped =
-			!(await promptOnStartup) ||
+			!(await promptOnStartupFromConfig(pi)) ||
 			SKIPPED_SESSION_REASONS.has(event.reason as string) ||
 			process.env.SPS_START_PICKER?.trim() === "0";
 		logger.info("SESSION_START", "session_start event received", {
