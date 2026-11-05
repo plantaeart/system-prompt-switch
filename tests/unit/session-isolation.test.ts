@@ -8,6 +8,7 @@ import { registerTestPrompt } from "../helpers/test-prompt-registry";
 import { SessionStateAdapter } from "../../src/adapters/session-state.adapter";
 import { PromptService } from "../../src/core/prompt-service";
 import type { UIPort } from "../../src/ports/ui.port";
+import { MemoryDefaultPrompt } from "../helpers/memory-default-prompt";
 
 class DummyUI implements UIPort {
 	hasUI(): boolean {
@@ -67,7 +68,7 @@ describe("Session Isolation", () => {
 		const storage = new FsStorageAdapter({ globalDir: promptsDir });
 		const sessionState = new SessionStateAdapter(statePath);
 		const ui = new DummyUI();
-		const service = new PromptService(storage, sessionState, ui);
+		const service = new PromptService(storage, sessionState, ui, new MemoryDefaultPrompt());
 
 		// Session 1 selects SPR1
 		await sessionState.setSessionConfig("session-1", {
@@ -131,6 +132,7 @@ describe("Session Isolation", () => {
 				freshStorage,
 				freshSessionState,
 				new DummyUI(),
+				new MemoryDefaultPrompt(),
 			);
 
 			// Session 1 is reopened: it must restore SPR1, NOT SPR2

@@ -65,6 +65,7 @@ Demo GIFs:
 - **Stack multiple prompts** — `/sps-inject` adds prompts cumulatively. `[global] <system-prompt-name>.md + [local] project-rules.md` is a valid active state.
 - **Above-editor banner** — the active prompt is rendered directly above your input prompt so you never forget which one is loaded.
 - **Self-describing extension context** — every resolved prompt includes a leading block that tells the LLM what this extension is, where prompt files live, and how to inspect/change them. The block is loaded from `assets/templates/extension-context.md` so you can tweak the wording without touching code.
+- **Per-project default** — your last choice in a project (startup modal, `/sps-select`, or a prompt just created with `/sps-new`, including `(None)`) becomes that project's default. New sessions there apply it silently, with no startup modal. Pick another with `/sps-select` to change it. If the default's file is gone, it is forgotten and the modal shows again. Dismissing the modal does not set a default.
 - **Startup modal** — on terminal launch, pick `(None)`, an existing prompt, or create one. Enabled by default; set `promptOnStartup` to `false` to skip it while retaining `/sps-select` and other commands:
   - **OMP:** `~/.omp/agent/config.yml`
     ```yaml
@@ -104,6 +105,7 @@ Demo GIFs:
 | **Local (repo)** | `<cwd>/.agents/system-prompts-switch/` | `SPS_LOCAL_PROMPT_DIR` |
 | **Global** | `~/.omp/agent/system-prompts-switch/` (OMP) or `~/.pi/agent/system-prompts-switch/` (Pi) | `SPS_PROMPT_DIR` or `SYSTEM_PROMPT_DIR` |
 | **Session state** | `~/.<host>/agent/state/system-prompt-switch/sessions.json` | `SPS_STATE_PATH` |
+| **Project default prompt** | `defaults.json` beside the session state file | follows `SPS_STATE_PATH` |
 
 Legacy prompts in `~/.pi/agent/system-prompts/` are auto-migrated on first run.
 

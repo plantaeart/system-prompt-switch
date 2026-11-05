@@ -11,6 +11,7 @@ import {
 	PromptScope,
 } from "../../src/core/types/prompt-scope.type";
 import type { UIPort } from "../../src/ports/ui.port";
+import { MemoryDefaultPrompt } from "../helpers/memory-default-prompt";
 
 /**
  * The suite must pass on whichever host the machine resolves to, so the mock
@@ -187,12 +188,14 @@ describe("PromptService", () => {
 	let sessionState: MockSessionState;
 	let ui: MockUI;
 	let service: PromptService;
+	let defaults: MemoryDefaultPrompt;
 
 	beforeEach(() => {
 		storage = new MockStorage();
 		sessionState = new MockSessionState();
 		ui = new MockUI();
-		service = new PromptService(storage, sessionState, ui);
+		defaults = new MemoryDefaultPrompt();
+		service = new PromptService(storage, sessionState, ui, defaults);
 	});
 
 	it("returns default config when session has no prior config", async () => {
@@ -991,5 +994,95 @@ describe("PromptService", () => {
 		expect(
 			ui.notifications[ui.notifications.length - 1].message,
 		).toContain("No prompt files");
+	});
+
+	describe("default prompt", () => {
+		const BEH = `[${HOST_LABEL}] beh.md`;
+
+		/** A second session in the same project, sharing the persisted default. */
+		const newSession = (id: string) => service.promptNewSessionModal(id);
+
+		beforeEach(() => {
+			storage.files.set(FixturePrompt.Beh, "BEH content");
+		});
+
+		it("applies the picker choice silently to the next session", async () => {
+			ui.selectChoices = [BEH];
+			await newSession("s1");
+			expect(ui.selectCalls).toBe(1);
+
+			await newSession("s2");
+			expect(ui.selectCalls).toBe(1);
+			const config = await service.getCurrentConfig("s2");
+			expect(config.decided).toBe(true);
+			expect(config.activePrompts).toEqual([{ name: FixturePrompt.Beh, scope: HOST_SCOPE }]);
+		});
+
+		it("lets the latest /sps-select win", async () => {
+			storage.files.set(FixturePrompt.A, "A content");
+			await service.selectPrompt("s1", FixturePrompt.Beh);
+			await service.selectPrompt("s1", FixturePrompt.A);
+
+			await newSession("s2");
+			expect(ui.selectCalls).toBe(0);
+			expect((await service.getCurrentConfig("s2")).file).toBe(FixturePrompt.A);
+		});
+
+		it("starts silently with no prompt once (None) was chosen", async () => {
+			await service.selectPrompt("s1", FixturePrompt.Beh);
+			await service.selectPrompt("s1", "none");
+
+			await newSession("s2");
+			expect(ui.selectCalls).toBe(0);
+			const config = await service.getCurrentConfig("s2");
+			expect(config.decided).toBe(true);
+			expect(config.activePrompts).toEqual([]);
+		});
+
+		it("records a freshly created prompt as the default", async () => {
+			ui.inputValue = "fresh";
+			ui.selectChoices = ["1. Built-in terminal editor"];
+			ui.editorValue = "Fresh content";
+			await service.createNewPrompt("s1", PromptScope.Local);
+
+			expect(defaults.value).toEqual({ name: "fresh.md", scope: PromptScope.Local });
+		});
+
+		it("records (None) picked in the modal as the default", async () => {
+			ui.selectChoices = [NONE_OPTION];
+			await newSession("s1");
+			expect(defaults.value).toBeNull();
+
+			await newSession("s2");
+			expect(ui.selectCalls).toBe(1);
+		});
+
+		it("leaves the default alone when injecting", async () => {
+			storage.files.set(FixturePrompt.A, "A content");
+			await service.selectPrompt("s1", FixturePrompt.Beh);
+
+			ui.selectChoices = [`[${HOST_LABEL}] a.md`];
+			await service.injectPrompt("s1");
+
+			expect(defaults.value).toEqual({ name: FixturePrompt.Beh, scope: HOST_SCOPE });
+		});
+
+		it("keeps asking after a dismissed picker", async () => {
+			ui.selectChoice = undefined;
+			await newSession("s1");
+			await newSession("s2");
+			expect(ui.selectCalls).toBe(2);
+		});
+
+		it("clears a default whose file is gone and shows the picker", async () => {
+			await service.selectPrompt("s1", FixturePrompt.Beh);
+			storage.files.delete(FixturePrompt.Beh);
+
+			ui.selectChoice = undefined;
+			await newSession("s2");
+			expect(ui.selectCalls).toBe(1);
+			expect(defaults.value).toBeUndefined();
+			expect(ui.notifications.some((n) => n.type === "warning")).toBe(true);
+		});
 	});
 });

@@ -1,11 +1,23 @@
 ---
 name: release
-description: Use when you are ready to ship a version - pre-flight checks, bump, commit, tag, push, publish to npm, and verify on the registry and the Pi gallery. Manual checklist only; no script is shipped and nothing runs unless you type it.
+description: Use when you are ready to ship a version - prints the filled command-only procedure (commit, PR with rebase-merge, tag, npm dry-run and publish, verify) via scripts/release-plan.sh, plus the full manual checklist. Nothing is executed for you; the human runs every command.
 ---
 
 # release
 
-Step-by-step release playbook for the `system-prompt-switch` package: bump the version, tag the commit, publish to npm, verify on https://pi.dev/packages. No script is shipped — this skill is the manual checklist. Every command is shown so the human stays in control; nothing runs unless typed.
+Step-by-step release playbook for the `system-prompt-switch` package: bump the version, tag the commit, publish to npm, verify on https://pi.dev/packages. Every command is shown so the human stays in control; nothing runs unless typed.
+
+## Quick start: the chosen procedure
+
+```bash
+bash .agents/skills/release/scripts/release-plan.sh "feat: <one-line subject> (vX.Y.Z)"
+```
+
+Prints, with the real package name, version, current branch, base branch and commit message filled in, the command-only runbook the team chose: (1) commit and push the branch, (2) PR then **Rebase and merge** on GitHub, (3) back to the base branch and `git pull --ff-only`, (4) tag and push the tag, (5) `npm whoami`, `npm publish --dry-run`, `npm publish`, (6) verify on the registry. It only reads git and `package.json`; it never commits, pushes or publishes.
+
+Notes: the base branch is read from `origin/HEAD` (this repo uses `master`). Tag **after** the rebase-merge and pull: rebase rewrites commit hashes, so a tag made on the feature branch would point at a commit that no longer exists on `master`. The version bump rides in the same commit as the feature (no separate bump commit).
+
+The sections below are the detailed manual checklist behind that runbook.
 
 ## When to use
 

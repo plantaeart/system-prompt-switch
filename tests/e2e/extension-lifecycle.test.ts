@@ -555,4 +555,54 @@ describe("Extension Lifecycle E2E", () => {
 		expect(selectCalls).toBe(0);
 	});
 
+	it("applies the project default to the next session, and only in that project", async () => {
+		const eventHandlers = new Map<string, ((e: unknown, c: unknown) => unknown)[]>();
+		const mockPi = {
+			registerCommand() {},
+			registerShortcut() {},
+			on(event: string, handler: (e: unknown, c: unknown) => unknown) {
+				const list = eventHandlers.get(event) ?? [];
+				list.push(handler);
+				eventHandlers.set(event, list);
+			},
+			appendEntry() {},
+		} as unknown as ExtensionAPI;
+		systemPromptSwitchExtension(mockPi);
+
+		let selectCalls = 0;
+		/** Starts a session in `cwd` and resolves once its (detached) startup work wrote the banner. */
+		async function startSession(id: string, cwd: string): Promise<void> {
+			const bannerWritten = Promise.withResolvers<void>();
+			const ctx = {
+				hasUI: true,
+				cwd,
+				sessionManager: { getSessionId: () => id, getEntries: () => [] },
+				ui: {
+					select: async () => {
+						selectCalls++;
+						return `[${HOST_LABEL}] ${TestPrompt.E2EPrompt}`;
+					},
+					notify: () => {},
+					setWidget: (_key: string, content: string[] | undefined) => {
+						if (content) bannerWritten.resolve();
+					},
+				},
+			} as unknown as ExtensionContext;
+			for (const h of eventHandlers.get(ExtensionEventType.SessionStart)!) {
+				await h({ type: ExtensionEventType.SessionStart, reason: "new" }, ctx);
+			}
+			await bannerWritten.promise;
+		}
+
+		await startSession("sess-a1", tempDir);
+		expect(selectCalls).toBe(1);
+
+		await startSession("sess-a2", tempDir);
+		expect(selectCalls).toBe(1);
+
+		const otherProject = fs.mkdtempSync(path.join(tempDir, "other-"));
+		await startSession("sess-b1", otherProject);
+		expect(selectCalls).toBe(2);
+	});
+
 });
