@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Prints the release procedure (command-only template) filled with real values.
 # Runs nothing destructive: it only reads git/package.json and prints commands.
-# Usage: release-plan.sh ["commit message"]   (branch = current branch)
+# Usage: release-plan.sh "commit message" "why: the feature or the bug" "done 1" ["done 2" ...]
+# Also writes the PR body to /tmp/pr-body-<branch>.md (a file in /tmp, nothing in the repo).
 set -eu
 cd "$(git rev-parse --show-toplevel)"
 
@@ -11,6 +12,13 @@ BRANCH=$(git branch --show-current)
 BASE=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || true)
 BASE=${BASE:-master}
 MSG=${1:-"chore: release v$VER"}
+WHY=${2:-"(say in one or two sentences what feature this adds or which bug it fixes)"}
+shift $(( $# > 2 ? 2 : $# ))
+BODY=/tmp/pr-body-${BRANCH//\//-}.md
+{
+	printf '## Why\n%s\n\n## What was done\n' "$WHY"
+	if [ $# -eq 0 ]; then echo "- (one line per change)"; else printf -- '- %s\n' "$@"; fi
+} > "$BODY"
 
 if [ "$BRANCH" = "$BASE" ]; then echo "You are on $BASE; create a feature branch first." >&2; exit 1; fi
 
@@ -24,7 +32,7 @@ git commit -m "$MSG"
 git push -u origin $BRANCH
 
 # 2. Open the PR, wait for CI + review, then "Rebase and merge"
-gh pr create --base $BASE --head $BRANCH --title "$MSG" --fill
+gh pr create --base $BASE --head $BRANCH --title "$MSG" --body-file $BODY
 gh pr checks --watch
 gh pr merge --rebase
 
