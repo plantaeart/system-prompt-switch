@@ -10,10 +10,15 @@ Step-by-step release playbook for the `system-prompt-switch` package: bump the v
 ## Quick start: the chosen procedure
 
 ```bash
-bash .agents/skills/release/scripts/release-plan.sh "feat: <one-line subject> (vX.Y.Z)"
+bash .agents/skills/release/scripts/release-plan.sh \
+  "feat: <one-line subject> (vX.Y.Z)" \
+  "<why: the feature added or the bug fixed, 1-2 sentences>" \
+  "<done 1>" "<done 2>" "<done 3>"
 ```
 
-Prints, with the real package name, version, current branch, base branch and commit message filled in, the command-only runbook the team chose: (1) commit and push the branch, (2) PR then **Rebase and merge** on GitHub, (3) back to the base branch and `git pull --ff-only`, (4) tag and push the tag, (5) `npm whoami`, `npm publish --dry-run`, `npm publish`, (6) verify on the registry. It only reads git and `package.json`; it never commits, pushes or publishes.
+The agent fills the three kinds of argument from the work it just did: the commit/PR title, the **why** (feature or bug, in plain words), and one short line per thing done. Keep the PR body clear and short: a `## Why` section and a `## What was done` bullet list, nothing else.
+
+The script writes that body to `/tmp/pr-body-<branch>.md` (outside the repo) and prints, with the real package name, version, current branch, base branch and title filled in, the command-only runbook the team chose: (1) commit and push the branch, (2) `gh pr create --body-file` then **Rebase and merge** on GitHub, (3) back to the base branch and `git pull --ff-only`, (4) tag and push the tag, (5) `npm whoami`, `npm publish --dry-run`, `npm publish`, (6) verify on the registry. It only reads git and `package.json`; it never commits, pushes or publishes.
 
 Notes: the base branch is read from `origin/HEAD` (this repo uses `master`). Tag **after** the rebase-merge and pull: rebase rewrites commit hashes, so a tag made on the feature branch would point at a commit that no longer exists on `master`. The version bump rides in the same commit as the feature (no separate bump commit).
 
