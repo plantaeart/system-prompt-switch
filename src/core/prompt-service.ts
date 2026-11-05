@@ -15,6 +15,7 @@ import type { MergeMode } from "./types/merge-mode.type";
 import type { PromptFileInfo } from "./types/prompt-file-info.type";
 import { globalScopeFor, PromptScope } from "./types/prompt-scope.type";
 import type { SessionPromptConfig } from "./types/session-prompt-config.type";
+import type { DefaultPromptPort } from "../ports/default-prompt.port";
 import type { SessionStatePort } from "../ports/session-state.port";
 import type { StoragePort } from "../ports/storage.port";
 import type { UIPort } from "../ports/ui.port";
@@ -109,6 +110,7 @@ export class PromptService {
 		private readonly storage: StoragePort,
 		private readonly sessionState: SessionStatePort,
 		private readonly ui: UIPort,
+		private readonly defaultPrompt: DefaultPromptPort,
 	) {
 		this.host = detectHost();
 	}
@@ -270,6 +272,7 @@ export class PromptService {
 			config.activePrompts = [];
 			config.decided = true;
 			await this.sessionState.setSessionConfig(sessionId, config);
+			await this.defaultPrompt.set(null);
 			await this.updateStatus(sessionId);
 			logger.info("PROMPT_CLEAR", "Prompt cleared for session", { sessionId });
 			this.ui.notify(
@@ -286,6 +289,7 @@ export class PromptService {
 		config.enabled = true;
 		config.decided = true;
 		await this.sessionState.setSessionConfig(sessionId, config);
+		await this.defaultPrompt.set({ name: parsed.name, scope: selectedScope });
 		await this.updateStatus(sessionId);
 		logger.info("PROMPT_SELECT", `Selected ${parsed.name}`, {
 			sessionId,
@@ -523,6 +527,7 @@ export class PromptService {
 			config.enabled = true;
 			config.decided = true;
 			await this.sessionState.setSessionConfig(sessionId, config);
+			await this.defaultPrompt.set({ name: cleanName, scope: targetScope });
 			await this.updateStatus(sessionId);
 			this.ui.notify(
 				`Saved and activated [${targetScope}] "${cleanName}".\nPath: ${fullPath}`,
@@ -771,6 +776,35 @@ export class PromptService {
 		return config.mode;
 	}
 
+	/** Applies the project's default to a fresh session; false when the picker must show. */
+	private async applyDefault(sessionId: string): Promise<boolean> {
+		const fav = await this.defaultPrompt.get();
+		if (fav === undefined) return false;
+		if (fav !== null) {
+			const files = await this.storage.list();
+			if (!files.some((f) => f.name === fav.name && f.scope === fav.scope)) {
+				await this.defaultPrompt.set(undefined);
+				this.ui.notify(
+					`Default prompt "${fav.name}" no longer exists; pick a new one.`,
+					"warning",
+				);
+				return false;
+			}
+		}
+		await this.sessionState.setSessionConfig(sessionId, {
+			file: fav?.name ?? null,
+			scope: fav?.scope,
+			activePrompts: fav ? [fav] : [],
+			mode: "append",
+			enabled: true,
+			decided: true,
+		});
+		await this.updateStatus(sessionId);
+		logger.info("DEFAULT_APPLY", `Applied default ${fav?.name ?? "none"}`, { sessionId });
+		if (fav) this.ui.notify(`Default system prompt [${formatScope(fav.scope)}] "${fav.name}" applied.`, "info");
+		return true;
+	}
+
 	async promptNewSessionModal(sessionId: string): Promise<void> {
 		if (!this.ui.hasUI()) return;
 		const existing = await this.sessionState.getSessionConfig(sessionId);
@@ -781,6 +815,8 @@ export class PromptService {
 			await this.updateStatus(sessionId);
 			return;
 		}
+		if (await this.applyDefault(sessionId)) return;
+
 
 		const files = await this.storage.list();
 		// ponytail: never pre-tick an option. A tick on (None / Default) made the
@@ -857,6 +893,7 @@ export class PromptService {
 		};
 
 		await this.sessionState.setSessionConfig(sessionId, config);
+		await this.defaultPrompt.set(file ? { name: file, scope: chosenScope } : null);
 		await this.updateStatus(sessionId);
 		logger.info("MODAL_SELECT", `Modal selected ${file ?? "none"}`, {
 			sessionId,

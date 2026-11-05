@@ -36,8 +36,8 @@ nix-direnv-reload     # after deleting .direnv/ or editing flake.nix by hand
 extensions/
   index.ts                # Entry point registered with Pi/OMP (`package.json` -> `main` / `extensions`)
 src/
-  ports/                  # Inbound/outbound interfaces (UIPort, StoragePort, SessionStatePort)
-  adapters/               # Concrete impls: PiUIAdapter, FsStorageAdapter, SessionStateAdapter
+  ports/                  # Inbound/outbound interfaces (UIPort, StoragePort, SessionStatePort, DefaultPromptPort)
+  adapters/               # Concrete impls: PiUIAdapter, FsStorageAdapter, SessionStateAdapter, DefaultPromptAdapter
   core/                   # Domain logic: PromptService, prompt-builder, logger, paths
   core/types/             # Shared domain types
 tests/
@@ -149,8 +149,8 @@ The `.npmignore` keeps the tarball lean (no `.agents/`, no lockfiles, no VCS, no
 
 ## Architecture notes
 
-- **Ports**: `src/ports/*.port.ts` define `UIPort`, `StoragePort`, `SessionStatePort`.
-- **Adapters**: `src/adapters/*.adapter.ts` implement those ports against Pi/OMP (`pi-ui.adapter.ts`), the filesystem (`fs-storage.adapter.ts`), and the session JSONL store (`session-state.adapter.ts`).
+- **Ports**: `src/ports/*.port.ts` define `UIPort`, `StoragePort`, `SessionStatePort`, `DefaultPromptPort`.
+- **Adapters**: `src/adapters/*.adapter.ts` implement those ports against Pi/OMP (`pi-ui.adapter.ts`), the filesystem (`fs-storage.adapter.ts`), the session JSONL store (`session-state.adapter.ts`), and the per-project default prompt (`default-prompt.adapter.ts`, `defaults.json` beside the session state file).
 - **Core**: `src/core/prompt-service.ts` is the only orchestrator. It owns prompt selection, mutation, mode, and the editor banner lifecycle.
 - **Why hexagonal**: keeps the domain unit-testable without spawning a host (the 42 unit tests run in <100ms; only the 2 e2e tests touch the host).
 

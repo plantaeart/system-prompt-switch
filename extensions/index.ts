@@ -10,6 +10,7 @@ import type {
 	SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
 import { FsStorageAdapter } from "../src/adapters/fs-storage.adapter";
+import { DefaultPromptAdapter } from "../src/adapters/default-prompt.adapter";
 import { PiUIAdapter } from "../src/adapters/pi-ui.adapter";
 import { SessionStateAdapter } from "../src/adapters/session-state.adapter";
 import { resolveHostPaths } from "../src/core/paths";
@@ -82,7 +83,8 @@ export default function systemPromptSwitchExtension(pi: ExtensionAPI): void {
 	const storage = new FsStorageAdapter();
 	const sessionState = new SessionStateAdapter();
 	const uiAdapter = new PiUIAdapter();
-	const service = new PromptService(storage, sessionState, uiAdapter);
+	const defaultAdapter = new DefaultPromptAdapter();
+	const service = new PromptService(storage, sessionState, uiAdapter, defaultAdapter);
 
 	// Wire session entry persistence into Pi session JSONL
 	sessionState.setAppendEntryFn((customType, data) => {
@@ -92,6 +94,7 @@ export default function systemPromptSwitchExtension(pi: ExtensionAPI): void {
 	function bindHost(ctx: ExtensionContext): string {
 		uiAdapter.setHost(ctx);
 		storage.setCwd(ctx.cwd);
+		defaultAdapter.setCwd(ctx.cwd);
 		sessionState.setEntryProvider(ctx.sessionManager);
 		// ponytail: never invent an id. Collapsing an empty session id onto a shared
 		// "default" key made one session's decision leak into the next. An empty id

@@ -191,3 +191,7 @@ grep -E "SESSION_START|MODAL_" ~/.omp/agent/logs/system-prompt-switch.log | grep
 - Do not point a test at `~/.omp` or `~/.pi`.
 - Do not delete a test to make a suite green. If a test encodes wrong behaviour, fix the behaviour and say so.
 - Do not weaken an assertion just to pass. Change the assertion only when the requirement genuinely changed.
+
+## Real session check
+
+Mocks are not enough for anything visible at session start or in a slash command. Also run the `real-session-test` skill (a real omp TUI in a sandbox HOME) and add a scenario for the new behaviour.
