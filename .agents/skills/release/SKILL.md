@@ -1,11 +1,22 @@
 ---
 name: release
-description: Use when you are ready to ship a version - prints the filled command-only procedure (commit, PR with rebase-merge, tag, npm dry-run and publish, verify) via scripts/release-plan.sh, plus the full manual checklist. Nothing is executed for you; the human runs every command.
+description: Use when you are ready to ship a version, or when asked to open a branch + commit + PR - open-pr.sh does branch/commit/PR after the user approves a plan; release-plan.sh prints the command-only release procedure (PR rebase-merge, tag, npm dry-run and publish, verify). Tag, version bump and npm publish always stay with the human.
 ---
 
 # release
 
-Step-by-step release playbook for the `system-prompt-switch` package: bump the version, tag the commit, publish to npm, verify on https://pi.dev/packages. Every command is shown so the human stays in control; nothing runs unless typed.
+Step-by-step release playbook for the `system-prompt-switch` package: bump the version, tag the commit, publish to npm, verify on https://pi.dev/packages. The agent may open the PR (see below) after approval; tagging and publishing are commands the human types.
+
+## Open a PR (agent-driven, after approval)
+
+When the user asks to "make a branch / commit / PR" for the current changes, the agent does it itself, but only after the user approved a plan:
+
+1. Run the dry plan and read it back: `bash .agents/skills/release/scripts/open-pr.sh --plan <branch> "<title>" "<why>" "<done 1>" ...` (changes nothing; prints base, branch, commit message, changed files and the PR body).
+2. Ask with the `ask` tool, one question, with the plan as the option `preview`: options "Create branch, commit and PR" (recommended) and nothing else; the user's "Other (type your own)" is how they request edits. First put the plan in a normal message, because the question blocks.
+3. On approval, run the same command without `--plan`. On "Other", apply the requested edits (title, why, done lines, branch name, file selection) and ask again.
+4. End the reply with the PR URL the script prints. Do not tag, bump or publish: those stay with the human (see the release steps below).
+
+`open-pr.sh` branches from `origin/<base>` carrying the working-tree changes, commits everything (`git add -A`: stash or revert unrelated files first), pushes and runs `gh pr create --body-file`. It refuses if there are no changes or the branch name exists locally.
 
 ## Quick start: the chosen procedure
 
