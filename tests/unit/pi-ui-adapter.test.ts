@@ -231,4 +231,94 @@ describe("PiUIAdapter list rendering and navigation", () => {
 		expect(previewLines[0]).toContain("Preview: [local] dynamic.md");
 		expect(previewLines).toContain("  Fetched dynamic content");
 	});
+
+	describe("preview of long content", () => {
+		const visible = (line: string) => line.replace(/\x1b\[[0-9;]*m/g, ""); // eslint-disable-line no-control-regex
+		const openPreview = (content: string) => {
+			const { ui, component } = open();
+			void ui.multiSelect("t", [{ id: "x", label: "[local] x.md", selected: false, content }]);
+			component().handleInput?.("\t");
+			return component;
+		};
+		const words = (n: number) => Array.from({ length: n }, (_, i) => `w${String(i).padStart(3, "0")}`).join(" ");
+
+		it("wraps a line wider than the terminal instead of cutting it", () => {
+			const component = openPreview("start lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor ENDMARK");
+
+			const lines = component().render(30);
+
+			expect(lines.join("\n")).toContain("ENDMARK");
+			expect(lines.every((l) => visible(l).length <= 30)).toBe(true);
+		});
+
+		it("scrolls through every wrapped line, not only the raw lines", () => {
+			const component = openPreview(words(160)); // one raw line, about 30 lines at width 30
+
+			expect(component().render(30).join("\n")).not.toContain("w159");
+			for (let i = 0; i < 60; i++) component().handleInput?.("\x1b[B");
+
+			const view = component().render(30).join("\n");
+			expect(view).toContain("w159");
+			expect(view).toContain("▲ ...");
+			expect(view).not.toContain("▼ ...");
+		});
+
+		it("PageDown and PageUp move by a page of wrapped lines", () => {
+			const component = openPreview(words(160));
+			component().render(30); // the host draws after every key; scrolling limits come from that draw
+
+			component().handleInput?.("\x1b[6~");
+			const afterPageDown = component().render(30).join("\n");
+			expect(afterPageDown).not.toContain("w000");
+			expect(afterPageDown).toContain("▲ ...");
+
+			component().handleInput?.("\x1b[5~");
+			expect(component().render(30).join("\n")).toContain("w000");
+		});
+
+		it("wraps again when the terminal width changes", () => {
+			const component = openPreview(`${words(20)} ENDMARK`);
+
+			const wide = component().render(120);
+			const narrow = component().render(30);
+
+			expect(wide.join("\n")).toContain("ENDMARK");
+			expect(narrow.join("\n")).toContain("ENDMARK");
+			expect(narrow.length).toBeGreaterThan(wide.length);
+		});
+
+		it("never draws terminal escape sequences found in a prompt file", () => {
+			const component = openPreview("safe\x1b[2Jtext \x1b]0;hacked\x07 end");
+
+			const text = component().render(80).join("\n");
+
+			expect(text).not.toContain("\x1b[2J");
+			expect(text).not.toContain("hacked\x07");
+			expect(text).toContain("safe");
+			expect(text).toContain("end");
+		});
+
+		it("never draws control characters that move the cursor or overwrite text", () => {
+			const component = openPreview("abc\b\bXY\fform\vvert\0nul\x07bell\ttab\nnext");
+
+			const text = component().render(80).join("\n");
+
+			// eslint-disable-next-line no-control-regex
+			expect(text).not.toMatch(/[\x00-\x08\x0b\x0c\x0e-\x1a\x1c-\x1f\x7f]/);
+			expect(text).toContain("abcXY");
+			expect(text).toContain("next");
+		});
+
+		it("PageDown scrolls by exactly the number of lines that are drawn", () => {
+			const component = openPreview(Array.from({ length: 100 }, (_, i) => `row${String(i).padStart(3, "0")}`).join("\n"));
+			const drawn = (): string[] => component().render(80).filter((l) => /^ {2}row\d{3}$/.test(l));
+			const first = drawn();
+
+			component().handleInput?.("\x1b[6~");
+			const second = drawn();
+
+			// The second page starts right after the first one: no row skipped, none repeated.
+			expect(second[0]).toBe(`  row${String(first.length).padStart(3, "0")}`);
+		});
+	});
 });

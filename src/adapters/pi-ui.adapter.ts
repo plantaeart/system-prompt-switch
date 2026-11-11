@@ -1,4 +1,4 @@
-import { truncateToWidth } from "@earendil-works/pi-tui";
+import { stripTerminalSequences, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { logger } from "../core/logger";
 import type {
 	MultiSelectItem,
@@ -94,6 +94,23 @@ function isTab(data: string): boolean {
 	// eslint-disable-next-line no-control-regex
 	if (/^\x1b\[27;\d+;9~$/.test(data)) return true;
 	return false;
+}
+
+/** Rows of prompt text shown at once, so drawing and scrolling always agree. */
+function previewHeight(tui: ListTui): number {
+	return Math.max(5, Math.min(16, (tui.height ?? 24) - 6));
+}
+
+/**
+ * Prompt text as display lines for `width` columns: terminal sequences dropped, then the control characters that would
+ * still move the cursor or overwrite text (backspace, form feed, NUL...; tab, newline and CR are kept), tabs expanded,
+ * long lines wrapped, 2-space indent.
+ */
+function previewLines(content: string, width: number): string[] {
+	// eslint-disable-next-line no-control-regex
+	const text = stripTerminalSequences(content).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "").replace(/\t/g, "    ");
+	const raw = text.length === 0 ? ["(empty prompt)"] : text.split(/\r?\n/);
+	return raw.flatMap((line) => wrapTextWithAnsi(line, Math.max(1, width - 2))).map((line) => `  ${line}`);
 }
 
 interface ListOptions {
@@ -221,6 +238,7 @@ export class PiUIAdapter implements UIPort {
 		let previewItem: MultiSelectItem | undefined;
 		let previewContent: string | undefined;
 		let previewScroll = 0;
+		let previewRows: string[] = []; // the content wrapped for the last drawn width: scrolling counts these, not raw lines
 
 		return this.host.ui.custom<MultiSelectResult | undefined>((tui, theme, keybindings, done) =>
 			listComponent(
@@ -231,23 +249,22 @@ export class PiUIAdapter implements UIPort {
 					renderCustomView(width) {
 						if (!previewItem) return undefined;
 						const sep = fg(theme, "muted", "─".repeat(Math.min(width, 70)));
-						const maxVisible = Math.max(5, Math.min(16, (tui.height ?? 24) - 6));
+						const maxVisible = previewHeight(tui);
 						const previewTitle = `Preview: ${previewItem.label}`;
 						const lines = [bold(theme, fg(theme, "accent", previewTitle)), sep];
 
 						if (previewContent === undefined) {
 							lines.push(fg(theme, "dim", "  Loading prompt content..."));
 						} else {
-							const rawLines =
-								previewContent.length === 0 ? ["(empty prompt)"] : previewContent.split(/\r?\n/);
-							const start = Math.max(0, Math.min(rawLines.length - 1, previewScroll));
-							const end = Math.min(rawLines.length, start + maxVisible);
+							previewRows = previewLines(previewContent, width);
+							// A narrower terminal wraps into more lines: keep the scroll position inside them.
+							previewScroll = Math.min(previewScroll, Math.max(0, previewRows.length - maxVisible));
+							const start = previewScroll;
+							const end = Math.min(previewRows.length, start + maxVisible);
 
 							if (start > 0) lines.push(fg(theme, "dim", "  ▲ ..."));
-							for (let i = start; i < end; i++) {
-								lines.push(`  ${rawLines[i]}`);
-							}
-							if (end < rawLines.length) lines.push(fg(theme, "dim", "  ▼ ..."));
+							for (let i = start; i < end; i++) lines.push(previewRows[i]);
+							if (end < previewRows.length) lines.push(fg(theme, "dim", "  ▼ ..."));
 						}
 
 						lines.push(sep, fg(theme, "dim", "↑/↓: Scroll · Tab/Esc: Back to list"));
@@ -278,12 +295,12 @@ export class PiUIAdapter implements UIPort {
 								previewItem = undefined;
 								previewContent = undefined;
 								previewScroll = 0;
+								previewRows = [];
 								redraw();
 								return true;
 							}
-							const rawLines = (previewContent ?? "").split(/\r?\n/);
-							const maxVisible = Math.max(5, Math.min(16, (tui.height ?? 24) - 6));
-							const maxScroll = Math.max(0, rawLines.length - maxVisible);
+							const maxVisible = previewHeight(tui);
+							const maxScroll = Math.max(0, previewRows.length - maxVisible);
 
 							if (
 								data === "\x1b[A" ||
@@ -327,6 +344,7 @@ export class PiUIAdapter implements UIPort {
 							if (!cur.isSpecial) {
 								previewItem = cur;
 								previewScroll = 0;
+								previewRows = [];
 								if (cur.content !== undefined) {
 									previewContent = cur.content;
 									redraw();
