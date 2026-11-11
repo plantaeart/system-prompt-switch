@@ -87,12 +87,22 @@ function isEnter(data: string, keybindings: ListKeybindings): boolean {
 	);
 }
 
+function isTab(data: string): boolean {
+	if (data === "\t") return true;
+	// eslint-disable-next-line no-control-regex
+	if (/^\x1b\[9(?::\d+)*(?:;\d+)*u$/.test(data)) return true;
+	// eslint-disable-next-line no-control-regex
+	if (/^\x1b\[27;\d+;9~$/.test(data)) return true;
+	return false;
+}
+
 interface ListOptions {
 	title: string;
 	hint: string;
 	count: number;
 	initialIndex?: number;
 	renderRow(index: number, isCursor: boolean): string;
+	renderCustomView?(width: number): string[] | undefined;
 	/** Keys the list does not own (Ctrl+S, Enter, ...). Return true when handled; call `redraw` after changing state. */
 	onKey(data: string, index: number, redraw: () => void): boolean;
 	onCancel(): void;
@@ -125,6 +135,14 @@ function listComponent(
 	return {
 		render(width: number): string[] {
 			if (cachedLines && cachedWidth === width) return cachedLines;
+			if (opts.renderCustomView) {
+				const custom = opts.renderCustomView(width);
+				if (custom) {
+					cachedWidth = width;
+					cachedLines = custom.map((line) => truncateToWidth(line, width, ""));
+					return cachedLines;
+				}
+			}
 			const sep = fg(theme, "muted", "─".repeat(Math.min(width, 70)));
 			const maxVisible = Math.max(5, Math.min(14, (tui.height ?? 24) - 6));
 			const start = index >= maxVisible ? index - maxVisible + 1 : 0;
@@ -200,12 +218,41 @@ export class PiUIAdapter implements UIPort {
 		const rows: MultiSelectItem[] = items.map((it) => ({ ...it }));
 		const selectedIds = () => rows.filter((it) => !it.isSpecial && it.selected).map((it) => it.id);
 
+		let previewItem: MultiSelectItem | undefined;
+		let previewContent: string | undefined;
+		let previewScroll = 0;
+
 		return this.host.ui.custom<MultiSelectResult | undefined>((tui, theme, keybindings, done) =>
 			listComponent(
 				{
 					title,
-					hint: "↑/↓: Move · Space/Enter: Toggle · Ctrl+S: Save · Esc: Cancel",
+					hint: "↑/↓: Move · Space/Enter: Toggle · Tab: Preview · Ctrl+S: Save · Esc: Cancel",
 					count: rows.length,
+					renderCustomView(width) {
+						if (!previewItem) return undefined;
+						const sep = fg(theme, "muted", "─".repeat(Math.min(width, 70)));
+						const maxVisible = Math.max(5, Math.min(16, (tui.height ?? 24) - 6));
+						const previewTitle = `Preview: ${previewItem.label}`;
+						const lines = [bold(theme, fg(theme, "accent", previewTitle)), sep];
+
+						if (previewContent === undefined) {
+							lines.push(fg(theme, "dim", "  Loading prompt content..."));
+						} else {
+							const rawLines =
+								previewContent.length === 0 ? ["(empty prompt)"] : previewContent.split(/\r?\n/);
+							const start = Math.max(0, Math.min(rawLines.length - 1, previewScroll));
+							const end = Math.min(rawLines.length, start + maxVisible);
+
+							if (start > 0) lines.push(fg(theme, "dim", "  ▲ ..."));
+							for (let i = start; i < end; i++) {
+								lines.push(`  ${rawLines[i]}`);
+							}
+							if (end < rawLines.length) lines.push(fg(theme, "dim", "  ▼ ..."));
+						}
+
+						lines.push(sep, fg(theme, "dim", "↑/↓: Scroll · Tab/Esc: Back to list"));
+						return lines;
+					},
 					renderRow(i, isCursor) {
 						const it = rows[i];
 						const text =
@@ -222,6 +269,93 @@ export class PiUIAdapter implements UIPort {
 						return it.isSpecial ? fg(theme, "dim", line) : line;
 					},
 					onKey(data, index, redraw) {
+						if (previewItem !== undefined) {
+							if (
+								isTab(data) ||
+								data === "\x1b" ||
+								Boolean(keybindings.matches?.(data, "tui.select.cancel"))
+							) {
+								previewItem = undefined;
+								previewContent = undefined;
+								previewScroll = 0;
+								redraw();
+								return true;
+							}
+							const rawLines = (previewContent ?? "").split(/\r?\n/);
+							const maxVisible = Math.max(5, Math.min(16, (tui.height ?? 24) - 6));
+							const maxScroll = Math.max(0, rawLines.length - maxVisible);
+
+							if (
+								data === "\x1b[A" ||
+								data === "\x1bOA" ||
+								data === "k" ||
+								Boolean(keybindings.matches?.(data, "tui.select.up"))
+							) {
+								if (previewScroll > 0) {
+									previewScroll = Math.max(0, previewScroll - 1);
+									redraw();
+								}
+								return true;
+							}
+							if (
+								data === "\x1b[B" ||
+								data === "\x1bOB" ||
+								data === "j" ||
+								Boolean(keybindings.matches?.(data, "tui.select.down"))
+							) {
+								if (previewScroll < maxScroll) {
+									previewScroll = Math.min(maxScroll, previewScroll + 1);
+									redraw();
+								}
+								return true;
+							}
+							if (data === "\x1b[5~") {
+								previewScroll = Math.max(0, previewScroll - maxVisible);
+								redraw();
+								return true;
+							}
+							if (data === "\x1b[6~") {
+								previewScroll = Math.min(maxScroll, previewScroll + maxVisible);
+								redraw();
+								return true;
+							}
+							return true;
+						}
+
+						if (isTab(data)) {
+							const cur = rows[index];
+							if (!cur.isSpecial) {
+								previewItem = cur;
+								previewScroll = 0;
+								if (cur.content !== undefined) {
+									previewContent = cur.content;
+									redraw();
+								} else if (typeof cur.loadContent === "function") {
+									previewContent = undefined;
+									redraw();
+									Promise.resolve(cur.loadContent())
+										.then((loaded) => {
+											if (previewItem === cur) {
+												cur.content = loaded ?? "";
+												previewContent = cur.content;
+												redraw();
+											}
+										})
+										.catch((err) => {
+											if (previewItem === cur) {
+												previewContent = `(Error loading prompt: ${err instanceof Error ? err.message : String(err)})`;
+												redraw();
+											}
+										});
+								} else {
+									previewContent = "(no content available)";
+									redraw();
+								}
+								return true;
+							}
+							return false;
+						}
+
 						if (isCtrlKey(data, "s")) {
 							done({ selectedIds: selectedIds() });
 							return true;

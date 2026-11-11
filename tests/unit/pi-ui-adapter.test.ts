@@ -145,4 +145,90 @@ describe("PiUIAdapter list rendering and navigation", () => {
 		expect(view).toContain("▲ ...");
 		expect(view).toContain("> [ ] p20");
 	});
+
+	it("presses Tab to preview a prompt, scrolls with arrows, and returns to list on Tab or Esc without losing state", async () => {
+		const promptItems = [
+			{
+				id: "[local] a.md",
+				label: "[local] a.md",
+				selected: true,
+				content: Array.from({ length: 30 }, (_, i) => `Line ${i + 1} of prompt a`).join("\n"),
+			},
+			{
+				id: "[local] b.md",
+				label: "[local] b.md",
+				selected: false,
+				content: "Simple content of b",
+			},
+		];
+		const { ui, component } = open();
+		const result = ui.multiSelect("Select Prompts", promptItems);
+
+		// Initially in list mode
+		expect(component().render(80)).toContain("> [✓] [local] a.md");
+		expect(component().render(80).at(-1)).toContain("Tab: Preview");
+
+		// Press Tab on item 0 (a.md) -> enters preview mode
+		component().handleInput?.("\t");
+		let previewLines = component().render(80);
+		expect(previewLines[0]).toContain("Preview: [local] a.md");
+		expect(previewLines).toContain("  Line 1 of prompt a");
+		expect(previewLines.at(-1)).toContain("Tab/Esc: Back to list");
+		expect(previewLines.join("\n")).toContain("▼ ...");
+
+		// Scroll down in preview mode
+		component().handleInput?.("\x1b[B");
+		previewLines = component().render(80);
+		expect(previewLines.join("\n")).toContain("▲ ...");
+
+		// Press Tab to exit preview mode -> back to list mode with cursor and selection intact
+		component().handleInput?.("\t");
+		let listLines = component().render(80);
+		expect(listLines).toContain("> [✓] [local] a.md");
+		expect(listLines).toContain("  [ ] [local] b.md");
+
+		// Move to b.md and press Tab
+		component().handleInput?.("\x1b[B");
+		expect(component().render(80)).toContain("> [ ] [local] b.md");
+		component().handleInput?.("\t");
+		expect(component().render(80)[0]).toContain("Preview: [local] b.md");
+		expect(component().render(80)).toContain("  Simple content of b");
+
+		// Press Esc to exit preview mode -> back to list mode (does NOT cancel the dialog)
+		component().handleInput?.("\x1b");
+		listLines = component().render(80);
+		expect(listLines).toContain("> [ ] [local] b.md");
+
+		// Save selection with Ctrl+S
+		component().handleInput?.("\x13");
+		expect(await result).toEqual({ selectedIds: ["[local] a.md"] });
+	});
+
+	it("loads content dynamically via loadContent when Tab is pressed", async () => {
+		let loaded = false;
+		const dynamicItems = [
+			{
+				id: "[local] dynamic.md",
+				label: "[local] dynamic.md",
+				selected: false,
+				loadContent: async () => {
+					loaded = true;
+					return "Fetched dynamic content";
+				},
+			},
+		];
+		const { ui, component } = open();
+		void ui.multiSelect("t", dynamicItems);
+
+		// Press Tab
+		component().handleInput?.("\t");
+		expect(loaded).toBe(true);
+
+		// Allow promise to resolve
+		await new Promise((r) => setTimeout(r, 10));
+
+		const previewLines = component().render(80);
+		expect(previewLines[0]).toContain("Preview: [local] dynamic.md");
+		expect(previewLines).toContain("  Fetched dynamic content");
+	});
 });

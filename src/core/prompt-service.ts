@@ -325,6 +325,7 @@ export class PromptService {
 				selected: isPromptActive(file.name, file.scope),
 				name: file.name,
 				scope: file.scope,
+				loadContent: () => this.storage.read(file.name, file.scope),
 			});
 		}
 

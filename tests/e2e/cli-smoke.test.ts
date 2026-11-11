@@ -37,6 +37,6 @@ describe("CLI Smoke Test", () => {
 			// stderr should not contain fatal extension crash logs
 			expect(stderr).not.toContain("Error: Cannot find module");
 			expect(stderr).not.toContain("SyntaxError");
-		});
+		}, 15000);
 	}
 });

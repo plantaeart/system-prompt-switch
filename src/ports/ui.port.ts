@@ -5,6 +5,8 @@ export interface MultiSelectItem {
 	name?: string;
 	scope?: string;
 	isSpecial?: "save" | "none" | "create-omp" | "create-pi" | "create-local";
+	content?: string;
+	loadContent?: () => Promise<string | null> | string | null;
 }
 
 export interface MultiSelectResult {

@@ -1617,4 +1617,20 @@ describe("PromptService", () => {
 			expect(config.activePrompts).toEqual([{ name: FixturePrompt.A, scope: HOST_SCOPE }]);
 		});
 	});
+
+	describe("multiSelect item loadContent", () => {
+		it("supplies loadContent callback on non-special multiSelect items", async () => {
+			storage.files.set(FixturePrompt.Dev, "Dev content preview test");
+			ui.multiSelectResult = { selectedIds: [] };
+
+			await service.selectPrompt("sess-load-test");
+
+			const offered = ui.multiSelectOfferedItems[0];
+			const devItem = offered.find((it) => it.name === FixturePrompt.Dev);
+			expect(devItem).toBeDefined();
+			expect(typeof devItem?.loadContent).toBe("function");
+			const content = await devItem?.loadContent?.();
+			expect(content).toBe("Dev content preview test");
+		});
+	});
 });
