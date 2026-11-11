@@ -197,6 +197,27 @@ export class FsStorageAdapter implements StoragePort {
 		fs.writeFileSync(fullPath, content, "utf-8");
 	}
 
+	async rename(
+		oldName: string,
+		newName: string,
+		scope: PromptScope = PromptScope.GlobalOmp,
+	): Promise<boolean> {
+		const cleanOld = path.basename(oldName);
+		const cleanNew = path.basename(newName);
+		const targetDir =
+			scope === PromptScope.Local ? this.localDir : this.getGlobalDirectory(scope);
+		const oldPath = path.join(targetDir, cleanOld);
+		const newPath = path.join(targetDir, cleanNew);
+		try {
+			if (!fs.existsSync(oldPath)) return false;
+			if (fs.existsSync(newPath)) return false;
+			fs.renameSync(oldPath, newPath);
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
 	async delete(name: string, scope?: PromptScope): Promise<boolean> {
 		const cleanName = path.basename(name);
 

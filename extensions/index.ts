@@ -132,9 +132,9 @@ export default function systemPromptSwitchExtension(pi: ExtensionAPI): void {
 
 	pi.registerCommand(ExtensionCommand.EDIT, {
 		description: EXTENSION_COMMAND_CATALOG[ExtensionCommand.EDIT].description,
-		handler: async (_args: string, ctx: ExtensionCommandContext) => {
+		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			const sessionId = bindHost(ctx);
-			await service.editPrompt(sessionId);
+			await service.editPrompt(sessionId, args);
 		},
 	});
 
