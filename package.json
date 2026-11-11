@@ -1,6 +1,6 @@
 {
   "name": "system-prompt-switch",
-  "version": "0.13.2",
+  "version": "0.14.0",
   "description": "Pi extension to manage custom system prompts per session with switch, modal selection, and CRUD commands",
   "type": "module",
   "main": "extensions/index.ts",
@@ -26,7 +26,8 @@
     "ci": "bun run lint && bun run typecheck && bun test && bun run validate:skills"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*"
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
   },
   "devDependencies": {
     "@types/node": "^22.20.4",

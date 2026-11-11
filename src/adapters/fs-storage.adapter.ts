@@ -210,7 +210,13 @@ export class FsStorageAdapter implements StoragePort {
 		const newPath = path.join(targetDir, cleanNew);
 		try {
 			if (!fs.existsSync(oldPath)) return false;
-			if (fs.existsSync(newPath)) return false;
+			// Only a case-only rename may land on an existing name, and only when it is the same file
+			// (case-insensitive filesystem). Another file is never overwritten; ids alone are not trusted (FAT/network report 0).
+			const sameFile =
+				cleanOld.toLowerCase() === cleanNew.toLowerCase() &&
+				fs.existsSync(newPath) &&
+				fs.statSync(newPath).ino === fs.statSync(oldPath).ino;
+			if (fs.existsSync(newPath) && !sameFile) return false;
 			fs.renameSync(oldPath, newPath);
 			return true;
 		} catch {

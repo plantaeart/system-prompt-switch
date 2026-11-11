@@ -62,11 +62,11 @@ Demo GIFs:
 
 - **Per-session prompts** — your active prompt is bound to the session ID, never leaks between concurrent or sequential sessions.
 - **Two scopes, one mental model** — `[local]` lives in your repo (`.agents/system-prompts-switch/`, committable), `[global]` lives in your home (`~/.pi` or `~/.omp/agent/system-prompts-switch/`). Same file can exist in both; local wins for the repo session.
-- **Stack multiple prompts** — `/sps-inject` adds prompts cumulatively. `[global] <system-prompt-name>.md + [local] project-rules.md` is a valid active state.
+- **Stack multiple prompts** — `/sps-select a.md b.md` (or the checkbox list) keeps several prompts active for the session and the project default; `/sps-inject` adds prompts for the next message only. `[global] <system-prompt-name>.md + [local] project-rules.md` is a valid active state.
 - **Above-editor banner** — the active prompt is rendered directly above your input prompt so you never forget which one is loaded.
 - **Self-describing extension context** — every resolved prompt includes a leading block that tells the LLM what this extension is, where prompt files live, and how to inspect/change them. The block is loaded from `assets/templates/extension-context.md` so you can tweak the wording without touching code.
-- **Per-project default** — your last choice in a project (startup modal, `/sps-select`, or a prompt just created with `/sps-new`, including `(None)`) becomes that project's default. New sessions there apply it silently, with no startup modal. Pick another with `/sps-select` to change it. If the default's file is gone, it is forgotten and the modal shows again. Dismissing the modal does not set a default.
-- **Startup modal** — on terminal launch, pick `(None)`, an existing prompt, or create one. Enabled by default; set `promptOnStartup` to `false` to skip it while retaining `/sps-select` and other commands:
+- **Per-project default** — your last choice in a project (startup modal, `/sps-select`, or a prompt just created with `/sps-new`, one or several prompts, including `(None)`) becomes that project's default. New sessions there apply it silently, with no startup modal. Pick another with `/sps-select` to change it. If a default's file is gone it is dropped, and if none is left it is forgotten and the modal shows again. Dismissing the modal does not set a default.
+- **Startup modal** — on terminal launch, a checkbox list: Space/Enter ticks prompts, Ctrl+S saves (nothing ticked = `(None)`), Esc skips without setting a default; you can also create a prompt from it. Enabled by default; set `promptOnStartup` to `false` to skip it while retaining `/sps-select` and other commands:
   - **OMP:** `~/.omp/agent/config.yml`
     ```yaml
     systemPromptSwitch:
@@ -85,10 +85,10 @@ Demo GIFs:
 
 | Command | What it does |
 |---|---|
-| `/sps-select [none\|<name>\|[local\|omp\|pi] <name>]` | Pick the active prompt (or `(None / Default)`); with an argument it selects directly, no picker |
+| `/sps-select [none\|[sps name 1] [sps name 2] [sps name N]]` | Pick the active prompt(s) from a checkbox list (Space/Enter toggles, Ctrl+S saves); with names it selects them directly, no picker. A name may be prefixed with `[local\|omp\|pi]`; `none` clears |
 | `/sps-inject` | Stack or toggle multiple prompts for this session |
 | `/sps-new` | Create a new `.md` prompt (choose local vs global) |
-| `/sps-edit` | Edit an existing prompt in the built-in editor |
+| `/sps-edit [sps name]` | Edit a prompt in the built-in editor: pick it from a list (Ctrl+N renames it) or pass its name to skip the picker. A rename updates this session and the project default; other open sessions that used the old name need a new `/sps-select` |
 | `/sps-path` | Print absolute paths for the active prompt and all local/global files |
 | `/sps-delete` | Delete a prompt file (resets session if it was active) |
 | `/sps-move` | Move a prompt file to another scope (local, global pi, or global omp) |

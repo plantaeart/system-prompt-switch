@@ -502,7 +502,7 @@ describe("PromptService", () => {
 		config = await service.getCurrentConfig("sess-1");
 		expect(config.activePrompts.length).toBe(2);
 		expect(ui.currentWidget?.[0]).toContain(
-			`Active Prompt: [${HOST_LABEL}] prompt1.md + [${HOST_LABEL}] prompt2.md (append mode)`,
+			`Active Prompt: [${HOST_LABEL}] prompt1.md (append mode)`,
 		);
 
 		// Resolves turn with both prompts combined
@@ -644,7 +644,7 @@ describe("PromptService", () => {
 		expect(config.activePrompts[0].injected).toBeUndefined();
 	});
 
-	it("resolvePromptForTurn keeps injected entries persistent across turns", async () => {
+	it("resolvePromptForTurn strips injected entries and keeps the primary", async () => {
 		storage.files.set(FixturePrompt.B, "B content");
 		storage.files.set(FixturePrompt.C, "C content");
 		await sessionState.setSessionConfig("sess-resolve", {
@@ -665,19 +665,16 @@ describe("PromptService", () => {
 		expect(result).toContain("C content");
 
 		const config = await service.getCurrentConfig("sess-resolve");
-		expect(config.activePrompts).toEqual([
-			{ name: FixturePrompt.B, scope: HOST_SCOPE },
-			{ name: FixturePrompt.C, scope: HOST_SCOPE, injected: true },
-		]);
+		expect(config.activePrompts).toEqual([{ name: FixturePrompt.B, scope: HOST_SCOPE }]);
 
 		const nextResult = await service.resolvePromptForTurn("sess-resolve", {
 			basePrompt: "Base",
 		});
 		expect(nextResult).toContain("B content");
-		expect(nextResult).toContain("C content");
+		expect(nextResult).not.toContain("C content");
 	});
 
-	it("widget shows all active prompts joined by +", async () => {
+	it("widget shows only the primary even when an injection is pending", async () => {
 		storage.files.set(FixturePrompt.B, "B content");
 		storage.files.set(FixturePrompt.C, "C content");
 		await sessionState.setSessionConfig("sess-widget", {
@@ -692,6 +689,24 @@ describe("PromptService", () => {
 		});
 
 		await service.updateStatus("sess-widget");
+
+		expect(ui.currentWidget?.[0]).toContain(`Active Prompt: [${HOST_LABEL}] b.md (append mode)`);
+		expect(ui.currentWidget?.[0]).not.toContain(FixturePrompt.C);
+	});
+
+	it("widget lists every selected (non-injected) prompt joined by +", async () => {
+		await sessionState.setSessionConfig("sess-widget-multi", {
+			file: FixturePrompt.B,
+			scope: HOST_SCOPE,
+			activePrompts: [
+				{ name: FixturePrompt.B, scope: HOST_SCOPE },
+				{ name: FixturePrompt.C, scope: HOST_SCOPE },
+			],
+			mode: "append",
+			enabled: true,
+		});
+
+		await service.updateStatus("sess-widget-multi");
 
 		expect(ui.currentWidget?.[0]).toContain(
 			`Active Prompt: [${HOST_LABEL}] b.md + [${HOST_LABEL}] c.md (append mode)`,
@@ -1124,17 +1139,14 @@ describe("PromptService", () => {
 			expect(ui.selectCalls).toBe(1);
 		});
 
-		it("updates the default when injecting", async () => {
+		it("leaves the default alone when injecting", async () => {
 			storage.files.set(FixturePrompt.A, "A content");
 			await service.selectPrompt("s1", FixturePrompt.Beh);
 
 			ui.selectChoices = [`[${HOST_LABEL}] a.md`];
 			await service.injectPrompt("s1");
 
-			expect(defaults.value).toEqual([
-				{ name: FixturePrompt.Beh, scope: HOST_SCOPE },
-				{ name: FixturePrompt.A, scope: HOST_SCOPE, injected: true },
-			]);
+			expect(defaults.value).toEqual([{ name: FixturePrompt.Beh, scope: HOST_SCOPE }]);
 		});
 
 		it("supports interactive multi-selection in selectPrompt and persists all", async () => {
@@ -1161,7 +1173,7 @@ describe("PromptService", () => {
 
 			// A new session in this project restores both prompts
 			await newSession("s2");
-			expect(ui.selectCalls).toBe(3); // s1 had 3 select choices; s2 had 0 selectCalls because default applied
+			expect(ui.selectCalls).toBe(3); // unchanged since s1: s2 applies the saved default without opening the picker
 			const s2Config = await service.getCurrentConfig("s2");
 			expect(s2Config.activePrompts).toEqual([
 				{ name: FixturePrompt.A, scope: HOST_SCOPE },
@@ -1431,6 +1443,178 @@ describe("PromptService", () => {
 
 			expect(storage.files.has(FixturePrompt.Dev)).toBe(true);
 			expect(ui.notifications.some((n) => n.message.includes("cancelled"))).toBe(true);
+		});
+	});
+
+	describe("/sps-select with several names and argument completion", () => {
+		it("activates every name given and saves them all as the default", async () => {
+			storage.files.set(FixturePrompt.A, "A content");
+			storage.files.set(FixturePrompt.B, "B content");
+
+			await service.selectPrompt("s1", `${FixturePrompt.A} ${FixturePrompt.B}`);
+
+			const config = await service.getCurrentConfig("s1");
+			const expected = [
+				{ name: FixturePrompt.A, scope: HOST_SCOPE },
+				{ name: FixturePrompt.B, scope: HOST_SCOPE },
+			];
+			expect(config.activePrompts).toEqual(expected);
+			expect(defaults.value).toEqual(expected);
+		});
+
+		it("accepts a [scope] prefix before any of the names", async () => {
+			storage.files.set(FixturePrompt.A, "A content");
+			storage.files.set(FixturePrompt.B, "B content");
+
+			await service.selectPrompt("s1", `[${HOST_LABEL}] ${FixturePrompt.A} ${FixturePrompt.B}`);
+
+			const config = await service.getCurrentConfig("s1");
+			expect(config.activePrompts.map((p) => p.name)).toEqual([FixturePrompt.A, FixturePrompt.B]);
+		});
+
+		it("changes nothing when one of several names does not exist", async () => {
+			storage.files.set(FixturePrompt.A, "A content");
+			storage.files.set(FixturePrompt.B, "B content");
+			await service.selectPrompt("s1", FixturePrompt.A);
+
+			await service.selectPrompt("s1", `${FixturePrompt.B} nope.md`);
+
+			const config = await service.getCurrentConfig("s1");
+			expect(config.activePrompts).toEqual([{ name: FixturePrompt.A, scope: HOST_SCOPE }]);
+			expect(ui.notifications.at(-1)?.type).toBe("warning");
+		});
+
+		it("completes prompt names and skips the ones already typed", async () => {
+			storage.files.set(FixturePrompt.A, "A content");
+			storage.files.set(FixturePrompt.B, "B content");
+
+			const all = await service.completePromptArgs("");
+			expect(all?.map((i) => i.value)).toEqual([FixturePrompt.A, FixturePrompt.B]);
+
+			const rest = await service.completePromptArgs(`${FixturePrompt.A} `);
+			expect(rest?.map((i) => i.value)).toEqual([`${FixturePrompt.A} ${FixturePrompt.B}`]);
+
+			const partial = await service.completePromptArgs(`${FixturePrompt.A} b`);
+			expect(partial?.map((i) => i.value)).toEqual([`${FixturePrompt.A} ${FixturePrompt.B}`]);
+
+			expect(await service.completePromptArgs("zzz")).toBeNull();
+		});
+	});
+
+	describe("/sps-select picker fallback", () => {
+		it("dismissing the picker changes nothing and stays silent", async () => {
+			storage.files.set(FixturePrompt.A, "A content");
+			await service.selectPrompt("s1", FixturePrompt.A);
+			const notificationsBefore = ui.notifications.length;
+			ui.selectChoices = [];
+			ui.selectChoice = undefined;
+
+			const result = await service.selectPrompt("s1");
+
+			expect(result).toBeUndefined();
+			expect(ui.notifications.length).toBe(notificationsBefore);
+			const config = await service.getCurrentConfig("s1");
+			expect(config.activePrompts).toEqual([{ name: FixturePrompt.A, scope: HOST_SCOPE }]);
+		});
+
+		it("choosing (Done) straight away changes nothing and stays silent", async () => {
+			storage.files.set(FixturePrompt.A, "A content");
+			await service.selectPrompt("s1", FixturePrompt.A);
+			const notificationsBefore = ui.notifications.length;
+			ui.selectChoices = ["(Done)"];
+
+			await service.selectPrompt("s1");
+
+			expect(ui.notifications.length).toBe(notificationsBefore);
+		});
+	});
+
+	describe("choosing no prompt", () => {
+		it("startup modal: ticking nothing leaves an empty selection, not a disabled extension", async () => {
+			storage.files.set(FixturePrompt.A, "A content");
+			ui.multiSelectResult = { selectedIds: [] };
+
+			await service.promptNewSessionModal("s-none");
+
+			const config = await service.getCurrentConfig("s-none");
+			expect(config.enabled).toBe(true);
+			expect(ui.currentWidget?.[0]).toContain("Active Prompt: (none)");
+		});
+
+		it("/sps-select list: ticking nothing leaves an empty selection, not a disabled extension", async () => {
+			storage.files.set(FixturePrompt.A, "A content");
+			await service.selectPrompt("s1", FixturePrompt.A);
+			ui.multiSelectResult = { selectedIds: [] };
+
+			await service.selectPrompt("s1");
+
+			const config = await service.getCurrentConfig("s1");
+			expect(config.enabled).toBe(true);
+			expect(ui.currentWidget?.[0]).toContain("Active Prompt: (none)");
+		});
+
+		it("/sps-select fallback: untoggling the last prompt leaves an empty selection, not a disabled extension", async () => {
+			storage.files.set(FixturePrompt.A, "A content");
+			await service.selectPrompt("s1", FixturePrompt.A);
+			ui.selectChoices = [`[${HOST_LABEL}] a.md`, "(Done)"];
+
+			await service.selectPrompt("s1");
+
+			const config = await service.getCurrentConfig("s1");
+			expect(config.activePrompts).toEqual([]);
+			expect(config.enabled).toBe(true);
+		});
+	});
+
+	describe("creating a prompt from the checkbox list", () => {
+		const newPromptInputs = () => {
+			ui.inputValue = "gamma";
+			ui.selectChoices = ["1. Built-in terminal editor"];
+			ui.editorValue = "Gamma content";
+		};
+		const gamma = { name: "gamma.md", scope: PromptScope.Local };
+
+		it("/sps-select keeps the prompts already ticked and adds the new one", async () => {
+			storage.files.set(FixturePrompt.A, "A content");
+			storage.files.set(FixturePrompt.B, "B content");
+			newPromptInputs();
+			ui.multiSelectResult = {
+				action: "create-local",
+				selectedIds: [`[${HOST_LABEL}] a.md`, `[${HOST_LABEL}] b.md`],
+			};
+
+			await service.selectPrompt("s1");
+
+			const expected = [
+				{ name: FixturePrompt.A, scope: HOST_SCOPE },
+				{ name: FixturePrompt.B, scope: HOST_SCOPE },
+				gamma,
+			];
+			expect((await service.getCurrentConfig("s1")).activePrompts).toEqual(expected);
+			expect(defaults.value).toEqual(expected);
+		});
+
+		it("startup modal keeps the prompts already ticked and adds the new one", async () => {
+			storage.files.set(FixturePrompt.A, "A content");
+			newPromptInputs();
+			ui.multiSelectResult = { action: "create-local", selectedIds: [`[${HOST_LABEL}] a.md`] };
+
+			await service.promptNewSessionModal("s-new");
+
+			const config = await service.getCurrentConfig("s-new");
+			expect(config.activePrompts).toEqual([{ name: FixturePrompt.A, scope: HOST_SCOPE }, gamma]);
+		});
+
+		it("cancelling the name prompt leaves the selection as it was", async () => {
+			storage.files.set(FixturePrompt.A, "A content");
+			await service.selectPrompt("s1", FixturePrompt.A);
+			ui.inputValue = undefined;
+			ui.multiSelectResult = { action: "create-local", selectedIds: [] };
+
+			await service.selectPrompt("s1");
+
+			const config = await service.getCurrentConfig("s1");
+			expect(config.activePrompts).toEqual([{ name: FixturePrompt.A, scope: HOST_SCOPE }]);
 		});
 	});
 });

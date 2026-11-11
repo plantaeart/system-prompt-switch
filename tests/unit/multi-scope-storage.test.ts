@@ -243,5 +243,14 @@ describe("FsStorageAdapter Multi-Scope", () => {
 			await adapter.write("another.md", "other", PromptScope.Local);
 			expect(await adapter.rename("renamed.md", "another.md", PromptScope.Local)).toBe(false);
 		});
+
+		it("never replaces another file, even one that shares its file id", async () => {
+			// A hard link has the same inode as its twin, like two names of one file on a case-insensitive filesystem.
+			await adapter.write("orig.md", "keep me", PromptScope.Local);
+			fs.linkSync(path.join(localDir, "orig.md"), path.join(localDir, "linked.md"));
+
+			expect(await adapter.rename("orig.md", "linked.md", PromptScope.Local)).toBe(false);
+			expect(await adapter.read("orig.md", PromptScope.Local)).toBe("keep me");
+		});
 	});
 });

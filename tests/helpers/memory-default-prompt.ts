@@ -10,7 +10,8 @@ export class MemoryDefaultPrompt implements DefaultPromptPort {
 		if (refs === undefined || refs === null) {
 			this.value = refs;
 		} else {
-			this.value = Array.isArray(refs) ? refs : [refs];
+			// A snapshot, like the JSON file the real adapter writes: later edits to the caller's array must not leak in.
+			this.value = Array.isArray(refs) ? [...refs] : [refs];
 		}
 	}
 	setCwd(): void {}

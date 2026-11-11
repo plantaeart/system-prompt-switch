@@ -1,3 +1,4 @@
+import { truncateToWidth } from "@earendil-works/pi-tui";
 import { logger } from "../core/logger";
 import type {
 	MultiSelectItem,
@@ -5,6 +6,25 @@ import type {
 	SelectPromptToEditResult,
 	UIPort,
 } from "../ports/ui.port";
+
+/** The slice of the host's TUI objects the pickers use. */
+export interface ListTui {
+	height?: number;
+	requestRender(): void;
+}
+export interface ListTheme {
+	fg?(color: string, text: string): string;
+	bold?(text: string): string;
+}
+export interface ListKeybindings {
+	matches?(data: string, id: string): boolean;
+}
+export interface ListComponent {
+	render(width: number): string[];
+	handleInput?(data: string): void;
+	invalidate?(): void;
+	dispose?(): void;
+}
 
 export interface PiUIHost {
 	hasUI: boolean;
@@ -23,84 +43,114 @@ export interface PiUIHost {
 
 		custom?<T>(
 			factory: (
-				tui: any,
-				theme: any,
-				keybindings: any,
+				tui: ListTui,
+				theme: ListTheme,
+				keybindings: ListKeybindings,
 				done: (value: T) => void,
-			) => {
-				render(width: number): string[];
-				handleInput?(data: string): void;
-				invalidate?(): void;
-				dispose?(): void;
-			} | Promise<{
-				render(width: number): string[];
-				handleInput?(data: string): void;
-				invalidate?(): void;
-				dispose?(): void;
-			}>,
-			options?: any,
+			) => ListComponent | Promise<ListComponent>,
+			options?: unknown,
 		): Promise<T>;
 	};
 }
 
-function getVisibleWidth(str: string): number {
+/**
+ * True when `data` is Ctrl+<letter> in any encoding a terminal may use:
+ * - legacy control byte (Ctrl+S = 0x13), what most terminals and tmux send;
+ * - Kitty keyboard protocol CSI-u, `ESC [ code[:alt] ; mods[:event] u` (Kitty, WezTerm, Ghostty, foot...);
+ * - xterm modifyOtherKeys, `ESC [ 27 ; mods ; code ~`.
+ * shortcut: plain Ctrl only (lock bits tolerated), no host keybinding lookup; upgrade if omp exposes a key matcher to extensions.
+ */
+function isCtrlKey(data: string, letter: string): boolean {
+	const code = letter.charCodeAt(0);
+	if (data === String.fromCharCode(code - 96)) return true;
 	// eslint-disable-next-line no-control-regex
-	const clean = str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
-	let width = 0;
-	for (let i = 0; i < clean.length; i++) {
-		const code = clean.charCodeAt(i);
-		if (
-			(code >= 0x1100 && code <= 0x115f) ||
-			(code >= 0x2e80 && code <= 0xa4cf && code !== 0x303f) ||
-			(code >= 0xac00 && code <= 0xd7a3) ||
-			(code >= 0xf900 && code <= 0xfaff) ||
-			(code >= 0xfe10 && code <= 0xfe19) ||
-			(code >= 0xfe30 && code <= 0xfe6f) ||
-			(code >= 0xff00 && code <= 0xff60) ||
-			(code >= 0xffe0 && code <= 0xffe6)
-		) {
-			width += 2;
-		} else {
-			width += 1;
-		}
-	}
-	return width;
+	const kitty = /^\x1b\[(\d+)(?::\d+)*;(\d+)(?::(\d+))?u$/.exec(data);
+	// eslint-disable-next-line no-control-regex
+	const mok = /^\x1b\[27;(\d+);(\d+)~$/.exec(data);
+	const [key, mods, event] = kitty ? [kitty[1], kitty[2], kitty[3]] : mok ? [mok[2], mok[1], undefined] : [];
+	if (key === undefined || event === "3") return false; // not CSI, or a key-release event
+	// bit 4 = ctrl; 64/128 = caps/num lock. Any other modifier (shift, alt, super) is a different chord.
+	const bits = Number(mods) - 1;
+	return Number(key) === code && (bits & 4) !== 0 && (bits & ~(4 | 64 | 128)) === 0;
 }
 
-function truncateLine(str: string, maxWidth: number): string {
-	if (getVisibleWidth(str) <= maxWidth) return str;
-	// eslint-disable-next-line no-control-regex
-	const ansiRegex = /\x1b\[[0-9;]*[a-zA-Z]/g;
-	let visible = 0;
-	let result = "";
-	let lastIndex = 0;
-	let match: RegExpExecArray | null;
+const fg = (theme: ListTheme, color: string, text: string): string =>
+	theme.fg ? theme.fg(color, text) : text;
+const bold = (theme: ListTheme, text: string): string => (theme.bold ? theme.bold(text) : text);
 
-	while ((match = ansiRegex.exec(str)) !== null) {
-		const textChunk = str.slice(lastIndex, match.index);
-		for (const ch of textChunk) {
-			const w = getVisibleWidth(ch);
-			if (visible + w > maxWidth) {
-				return `${result}\x1b[0m`;
-			}
-			visible += w;
-			result += ch;
-		}
-		result += match[0];
-		lastIndex = ansiRegex.lastIndex;
-	}
+function isEnter(data: string, keybindings: ListKeybindings): boolean {
+	return (
+		data === "\r" ||
+		data === "\n" ||
+		data === "\r\n" ||
+		Boolean(keybindings.matches?.(data, "tui.select.confirm"))
+	);
+}
 
-	const remaining = str.slice(lastIndex);
-	for (const ch of remaining) {
-		const w = getVisibleWidth(ch);
-		if (visible + w > maxWidth) {
-			return `${result}\x1b[0m`;
-		}
-		visible += w;
-		result += ch;
-	}
+interface ListOptions {
+	title: string;
+	hint: string;
+	count: number;
+	initialIndex?: number;
+	renderRow(index: number, isCursor: boolean): string;
+	/** Keys the list does not own (Ctrl+S, Enter, ...). Return true when handled; call `redraw` after changing state. */
+	onKey(data: string, index: number, redraw: () => void): boolean;
+	onCancel(): void;
+}
 
-	return result;
+/** A scrolling cursor list: title, rows, hint. Move/cancel keys live here; everything else goes to `onKey`. */
+function listComponent(
+	opts: ListOptions,
+	tui: ListTui,
+	theme: ListTheme,
+	keybindings: ListKeybindings,
+): ListComponent {
+	let index = Math.max(0, Math.min(opts.count - 1, opts.initialIndex ?? 0));
+	let cachedWidth: number | undefined;
+	let cachedLines: string[] | undefined;
+	const matches = (data: string, id: string) => Boolean(keybindings.matches?.(data, id));
+	const invalidate = () => {
+		cachedWidth = undefined;
+		cachedLines = undefined;
+	};
+	const redraw = () => {
+		invalidate();
+		tui.requestRender();
+	};
+	const move = (step: number) => {
+		index = (index + step + opts.count) % opts.count;
+		redraw();
+	};
+
+	return {
+		render(width: number): string[] {
+			if (cachedLines && cachedWidth === width) return cachedLines;
+			const sep = fg(theme, "muted", "─".repeat(Math.min(width, 70)));
+			const maxVisible = Math.max(5, Math.min(14, (tui.height ?? 24) - 6));
+			const start = index >= maxVisible ? index - maxVisible + 1 : 0;
+			const end = Math.min(opts.count, start + maxVisible);
+
+			const lines = [bold(theme, fg(theme, "accent", opts.title)), sep];
+			if (start > 0) lines.push(fg(theme, "dim", "  ▲ ..."));
+			for (let i = start; i < end; i++) lines.push(opts.renderRow(i, i === index));
+			if (end < opts.count) lines.push(fg(theme, "dim", "  ▼ ..."));
+			lines.push(sep, fg(theme, "dim", opts.hint));
+
+			cachedWidth = width;
+			cachedLines = lines.map((line) => truncateToWidth(line, width, ""));
+			return cachedLines;
+		},
+
+		handleInput(data: string): void {
+			if (opts.onKey(data, index, redraw)) return;
+			if (data === "\x1b" || matches(data, "tui.select.cancel")) return opts.onCancel();
+			if (opts.count === 0) return;
+			if (data === "\x1b[A" || data === "\x1bOA" || data === "k" || matches(data, "tui.select.up")) move(-1);
+			else if (data === "\x1b[B" || data === "\x1bOB" || data === "j" || matches(data, "tui.select.down")) move(1);
+		},
+
+		invalidate,
+	};
 }
 
 export class PiUIAdapter implements UIPort {
@@ -145,191 +195,58 @@ export class PiUIAdapter implements UIPort {
 			logger.warn("UI_UNAVAILABLE", "multiSelect requested with no UI host", { title });
 			return undefined;
 		}
-		if (typeof this.host.ui.custom !== "function") {
-			return undefined;
-		}
+		if (typeof this.host.ui.custom !== "function") return undefined;
 
-		const cloneItems: MultiSelectItem[] = items.map((it) => ({ ...it }));
-		let selectedIndex = 0;
+		const rows: MultiSelectItem[] = items.map((it) => ({ ...it }));
+		const selectedIds = () => rows.filter((it) => !it.isSpecial && it.selected).map((it) => it.id);
 
-		return this.host.ui.custom<MultiSelectResult | undefined>(
-			(tui, theme, keybindings, done) => {
-				let cachedWidth: number | undefined;
-				let cachedLines: string[] | undefined;
-
-				const invalidate = () => {
-					cachedWidth = undefined;
-					cachedLines = undefined;
-				};
-
-				const collectResult = (): MultiSelectResult => {
-					const selectedIds = cloneItems
-						.filter((it) => !it.isSpecial && it.selected)
-						.map((it) => it.id);
-					return { selectedIds };
-				};
-
-				return {
-					render(width: number): string[] {
-						if (cachedLines && cachedWidth === width) return cachedLines;
-						cachedWidth = width;
-
-						const lines: string[] = [];
-						const header = theme?.bold
-							? theme.bold(theme.fg ? theme.fg("accent", title) : title)
-							: title;
-						lines.push(truncateLine(header, width));
-
-						const sep = theme?.fg
-							? theme.fg("muted", "─".repeat(Math.min(width, 70)))
-							: "─".repeat(Math.min(width, 70));
-						lines.push(truncateLine(sep, width));
-
-						const maxVisible = Math.max(5, Math.min(14, (tui?.height ?? 24) - 6));
-						let scrollOffset = 0;
-						if (selectedIndex >= maxVisible) {
-							scrollOffset = selectedIndex - maxVisible + 1;
-						}
-						const end = Math.min(cloneItems.length, scrollOffset + maxVisible);
-
-						if (scrollOffset > 0) {
-							const upNotice = theme?.fg ? theme.fg("dim", "  ▲ ...") : "  ▲ ...";
-							lines.push(truncateLine(upNotice, width));
-						}
-
-						for (let i = scrollOffset; i < end; i++) {
-							const it = cloneItems[i];
-							const isCursor = i === selectedIndex;
-							const cursorPrefix = isCursor ? "> " : "  ";
-							let itemText = "";
-
-							if (it.isSpecial === "save") {
-								itemText = "[✔ Done / Save Selection (Ctrl+S)]";
-							} else if (it.isSpecial === "none") {
-								itemText = "(None / Clear all)";
-							} else if (it.isSpecial?.startsWith("create-")) {
-								itemText = it.label;
-							} else {
-								const checkMark = it.selected ? "[✓] " : "[ ] ";
-								itemText = `${checkMark}${it.label}`;
-							}
-
-							let renderedLine = `${cursorPrefix}${itemText}`;
-							if (isCursor) {
-								if (theme?.bold && theme?.fg) {
-									renderedLine = theme.bold(theme.fg("accent", renderedLine));
-								}
-							} else if (it.selected && theme?.fg) {
-								renderedLine = theme.fg("success", renderedLine);
-							} else if (it.isSpecial && theme?.fg) {
-								renderedLine = theme.fg("dim", renderedLine);
-							}
-
-							lines.push(truncateLine(renderedLine, width));
-						}
-
-						if (end < cloneItems.length) {
-							const downNotice = theme?.fg ? theme.fg("dim", "  ▼ ...") : "  ▼ ...";
-							lines.push(truncateLine(downNotice, width));
-						}
-
-						lines.push(truncateLine(sep, width));
-						const hint = "↑/↓: Move · Space/Enter: Toggle · Ctrl+S: Save · Esc: Cancel";
-						const styledHint = theme?.fg ? theme.fg("dim", hint) : hint;
-						lines.push(truncateLine(styledHint, width));
-
-						cachedLines = lines;
-						return lines;
+		return this.host.ui.custom<MultiSelectResult | undefined>((tui, theme, keybindings, done) =>
+			listComponent(
+				{
+					title,
+					hint: "↑/↓: Move · Space/Enter: Toggle · Ctrl+S: Save · Esc: Cancel",
+					count: rows.length,
+					renderRow(i, isCursor) {
+						const it = rows[i];
+						const text =
+							it.isSpecial === "save"
+								? "[✔ Done / Save Selection (Ctrl+S)]"
+								: it.isSpecial === "none"
+									? "(None / Clear all)"
+									: it.isSpecial
+										? it.label
+										: `${it.selected ? "[✓] " : "[ ] "}${it.label}`;
+						const line = `${isCursor ? "> " : "  "}${text}`;
+						if (isCursor) return bold(theme, fg(theme, "accent", line));
+						if (it.selected) return fg(theme, "success", line);
+						return it.isSpecial ? fg(theme, "dim", line) : line;
 					},
-
-					handleInput(data: string): void {
-						// 1. Ctrl+S 保存 (ASCII 19 / 0x13 / matches 'save')
-						if (
-							data === "\x13" ||
-							data.charCodeAt(0) === 19 ||
-							keybindings?.matches(data, "save")
-						) {
-							done(collectResult());
-							return;
+					onKey(data, index, redraw) {
+						if (isCtrlKey(data, "s")) {
+							done({ selectedIds: selectedIds() });
+							return true;
 						}
-
-						// 2. Escape 取消
-						if (data === "\x1b" || keybindings?.matches(data, "tui.select.cancel")) {
-							done({ cancelled: true, selectedIds: [] });
-							return;
+						if (data !== " " && !isEnter(data, keybindings)) return false;
+						const cur = rows[index];
+						if (cur.isSpecial === "save") {
+							done({ selectedIds: selectedIds() });
+						} else if (cur.isSpecial === "none") {
+							for (const it of rows) if (!it.isSpecial) it.selected = false;
+							redraw();
+						} else if (cur.isSpecial) {
+							done({ selectedIds: selectedIds(), action: cur.isSpecial });
+						} else {
+							cur.selected = !cur.selected; // toggles in place: the cursor stays and the list stays open
+							redraw();
 						}
-
-						// 3. 上移
-						if (
-							data === "\x1b[A" ||
-							data === "\x1bOA" ||
-							data === "k" ||
-							keybindings?.matches(data, "tui.select.up")
-						) {
-							selectedIndex = (selectedIndex - 1 + cloneItems.length) % cloneItems.length;
-							invalidate();
-							tui?.requestRender();
-							return;
-						}
-
-						// 4. 下移
-						if (
-							data === "\x1b[B" ||
-							data === "\x1bOB" ||
-							data === "j" ||
-							keybindings?.matches(data, "tui.select.down")
-						) {
-							selectedIndex = (selectedIndex + 1) % cloneItems.length;
-							invalidate();
-							tui?.requestRender();
-							return;
-						}
-
-						// 5. Space / Enter 触发
-						const isEnter =
-							data === "\r" ||
-							data === "\n" ||
-							data === "\r\n" ||
-							keybindings?.matches(data, "tui.select.confirm");
-						const isSpace = data === " ";
-
-						if (isSpace || isEnter) {
-							const cur = cloneItems[selectedIndex];
-							if (!cur) return;
-
-							if (cur.isSpecial === "save") {
-								done(collectResult());
-								return;
-							}
-
-							if (cur.isSpecial === "none") {
-								for (const it of cloneItems) {
-									if (!it.isSpecial) it.selected = false;
-								}
-								invalidate();
-								tui?.requestRender();
-								return;
-							}
-
-							if (cur.isSpecial?.startsWith("create-")) {
-								done({
-									selectedIds: collectResult().selectedIds,
-									action: cur.isSpecial as "create-omp" | "create-pi" | "create-local",
-								});
-								return;
-							}
-
-							// 普通提示词项：Toggle 勾选状态，不移动光标，不退出
-							cur.selected = !cur.selected;
-							invalidate();
-							tui?.requestRender();
-							return;
-						}
+						return true;
 					},
-
-					invalidate,
-				};
-			},
+					onCancel: () => done({ cancelled: true, selectedIds: [] }),
+				},
+				tui,
+				theme,
+				keybindings,
+			),
 		);
 	}
 
@@ -342,136 +259,34 @@ export class PiUIAdapter implements UIPort {
 			logger.warn("UI_UNAVAILABLE", "selectPromptToEdit requested with no UI host", { title });
 			return undefined;
 		}
-		if (typeof this.host.ui.custom !== "function") {
-			return undefined;
-		}
+		if (typeof this.host.ui.custom !== "function") return undefined;
 
-		let selectedIndex = Math.max(0, Math.min(options.length - 1, initialIndex));
-
-		return this.host.ui.custom<SelectPromptToEditResult | undefined>(
-			(tui, theme, keybindings, done) => {
-				let cachedWidth: number | undefined;
-				let cachedLines: string[] | undefined;
-
-				const invalidate = () => {
-					cachedWidth = undefined;
-					cachedLines = undefined;
-				};
-
-				return {
-					render(width: number): string[] {
-						if (cachedLines && cachedWidth === width) return cachedLines;
-						cachedWidth = width;
-
-						const lines: string[] = [];
-						const header = theme?.bold
-							? theme.bold(theme.fg ? theme.fg("accent", title) : title)
-							: title;
-						lines.push(truncateLine(header, width));
-
-						const sep = theme?.fg
-							? theme.fg("muted", "─".repeat(Math.min(width, 70)))
-							: "─".repeat(Math.min(width, 70));
-						lines.push(truncateLine(sep, width));
-
-						const maxVisible = Math.max(5, Math.min(14, (tui?.height ?? 24) - 6));
-						let scrollOffset = 0;
-						if (selectedIndex >= maxVisible) {
-							scrollOffset = selectedIndex - maxVisible + 1;
-						}
-						const end = Math.min(options.length, scrollOffset + maxVisible);
-
-						if (scrollOffset > 0) {
-							const upNotice = theme?.fg ? theme.fg("dim", "  ▲ ...") : "  ▲ ...";
-							lines.push(truncateLine(upNotice, width));
-						}
-
-						for (let i = scrollOffset; i < end; i++) {
-							const opt = options[i];
-							const isCursor = i === selectedIndex;
-							const cursorPrefix = isCursor ? "> " : "  ";
-							let renderedLine = `${cursorPrefix}${opt}`;
-							if (isCursor) {
-								if (theme?.bold && theme?.fg) {
-									renderedLine = theme.bold(theme.fg("accent", renderedLine));
-								}
-							}
-							lines.push(truncateLine(renderedLine, width));
-						}
-
-						if (end < options.length) {
-							const downNotice = theme?.fg ? theme.fg("dim", "  ▼ ...") : "  ▼ ...";
-							lines.push(truncateLine(downNotice, width));
-						}
-
-						lines.push(truncateLine(sep, width));
-						const hint = "↑/↓: Move · Enter: Edit · Ctrl+N: Rename · Esc: Cancel";
-						const styledHint = theme?.fg ? theme.fg("dim", hint) : hint;
-						lines.push(truncateLine(styledHint, width));
-
-						cachedLines = lines;
-						return lines;
+		return this.host.ui.custom<SelectPromptToEditResult | undefined>((tui, theme, keybindings, done) =>
+			listComponent(
+				{
+					title,
+					hint: "↑/↓: Move · Enter: Edit · Ctrl+N: Rename · Esc: Cancel",
+					count: options.length,
+					initialIndex,
+					renderRow(i, isCursor) {
+						const line = `${isCursor ? "> " : "  "}${options[i]}`;
+						return isCursor ? bold(theme, fg(theme, "accent", line)) : line;
 					},
-
-					handleInput(data: string): void {
-						// 1. Ctrl+N (ASCII 14 / 0x0E) -> Rename
-						if (
-							data === "\x0e" ||
-							data.charCodeAt(0) === 14 ||
-							keybindings?.matches(data, "rename")
-						) {
-							done({ action: "rename", choice: options[selectedIndex] });
-							return;
+					onKey(data, index) {
+						if (isCtrlKey(data, "n")) {
+							done({ action: "rename", choice: options[index] });
+							return true;
 						}
-
-						// 2. Escape -> Cancel
-						if (data === "\x1b" || keybindings?.matches(data, "tui.select.cancel")) {
-							done({ cancelled: true });
-							return;
-						}
-
-						// 3. Up
-						if (
-							data === "\x1b[A" ||
-							data === "\x1bOA" ||
-							data === "k" ||
-							keybindings?.matches(data, "tui.select.up")
-						) {
-							selectedIndex = (selectedIndex - 1 + options.length) % options.length;
-							invalidate();
-							tui?.requestRender();
-							return;
-						}
-
-						// 4. Down
-						if (
-							data === "\x1b[B" ||
-							data === "\x1bOB" ||
-							data === "j" ||
-							keybindings?.matches(data, "tui.select.down")
-						) {
-							selectedIndex = (selectedIndex + 1) % options.length;
-							invalidate();
-							tui?.requestRender();
-							return;
-						}
-
-						// 5. Enter -> Edit
-						const isEnter =
-							data === "\r" ||
-							data === "\n" ||
-							data === "\r\n" ||
-							keybindings?.matches(data, "tui.select.confirm");
-
-						if (isEnter) {
-							done({ action: "edit", choice: options[selectedIndex] });
-							return;
-						}
+						if (!isEnter(data, keybindings)) return false;
+						done({ action: "edit", choice: options[index] });
+						return true;
 					},
-
-					invalidate,
-				};
-			},
+					onCancel: () => done({ cancelled: true }),
+				},
+				tui,
+				theme,
+				keybindings,
+			),
 		);
 	}
 
