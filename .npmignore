@@ -29,3 +29,5 @@ flake.lock
 
 # Tests are kept (npm install for downstream dev tooling); only drop local artifacts
 coverage/
+# Logos are loaded from GitHub raw URLs, not from the package
+assets/logo/
