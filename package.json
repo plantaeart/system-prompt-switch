@@ -1,17 +1,24 @@
 {
   "name": "system-prompt-switch",
-  "version": "0.13.2",
-  "description": "Pi extension to manage custom system prompts per session with switch, modal selection, and CRUD commands",
+  "version": "0.13.3",
+  "description": "Pi and OMP extension to manage custom system prompts per session: switch, stack, and edit prompts from a modal, with CRUD slash commands",
   "type": "module",
   "main": "extensions/index.ts",
   "keywords": [
-    "pi-package"
+    "pi-package",
+    "pi-extension",
+    "pi-coding-agent",
+    "omp",
+    "oh-my-pi",
+    "system-prompt",
+    "prompt-manager",
+    "custom-instructions"
   ],
   "pi": {
     "extensions": [
       "./extensions"
     ],
-    "image": "./assets/imgs/img1.png"
+    "image": "https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/logo/cover.png"
   },
   "extensions": [
     "./extensions"
@@ -34,5 +41,13 @@
     "oxlint": "^1.85.0",
     "typescript": "^5.7.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/plantaeart/system-prompt-switch.git"
+  },
+  "homepage": "https://github.com/plantaeart/system-prompt-switch#readme",
+  "bugs": {
+    "url": "https://github.com/plantaeart/system-prompt-switch/issues"
+  }
 }
