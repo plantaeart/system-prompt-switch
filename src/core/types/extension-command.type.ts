@@ -24,8 +24,8 @@ export const EXTENSION_COMMAND_CATALOG: Record<
 	[ExtensionCommand.SELECT]: {
 		command: ExtensionCommand.SELECT,
 		description:
-			"Select active system prompt for this session (or None / Default); pass a name to skip the picker",
-		usage: "/sps-select [none|<name>|[local|omp|pi] <name>]",
+			"[sps name 1] [sps name 2] [sps name N] - Select the active system prompt(s) for this session, or none; names skip the picker",
+		usage: "/sps-select [none | [sps name 1] [sps name 2] [sps name N]]",
 	},
 	[ExtensionCommand.INJECT]: {
 		command: ExtensionCommand.INJECT,
@@ -40,8 +40,8 @@ export const EXTENSION_COMMAND_CATALOG: Record<
 	},
 	[ExtensionCommand.EDIT]: {
 		command: ExtensionCommand.EDIT,
-		description: "Edit an existing system prompt markdown file",
-		usage: "/sps-edit",
+		description: "[sps name] - Edit an existing system prompt markdown file; a name skips the picker",
+		usage: "/sps-edit [sps name]",
 	},
 	[ExtensionCommand.DELETE]: {
 		command: ExtensionCommand.DELETE,

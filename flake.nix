@@ -12,8 +12,8 @@
       # CI uses this shell, and .agents/skills/host-version/scripts/check-host-versions.sh
       # greps these exact `name@version` strings.
       hostCLIs = [
-        "@earendil-works/pi-coding-agent@1.5.0"
-        "@oh-my-pi/pi-coding-agent@18.16.0"
+        "@earendil-works/pi-coding-agent@1.5.2"
+        "@oh-my-pi/pi-coding-agent@18.18.8"
       ];
 
       # shortcut: nixpkgs lags bun releases, so override to the version CI pinned.

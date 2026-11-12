@@ -4,7 +4,7 @@ import { resolveHostPaths } from "../core/paths";
 import type { ActivePromptRef } from "../core/types/active-prompt-ref.type";
 import type { DefaultPromptPort } from "../ports/default-prompt.port";
 
-type DefaultsFile = Record<string, ActivePromptRef | null>;
+type DefaultsFile = Record<string, ActivePromptRef[] | ActivePromptRef | null>;
 
 /** Stores one default per project (keyed by absolute cwd) in defaults.json beside the session state. */
 export class DefaultPromptAdapter implements DefaultPromptPort {
@@ -28,15 +28,22 @@ export class DefaultPromptAdapter implements DefaultPromptPort {
 		}
 	}
 
-	async get(): Promise<ActivePromptRef | null | undefined> {
-		return this.readAll()[this.key];
+	async get(): Promise<ActivePromptRef[] | null | undefined> {
+		const val = this.readAll()[this.key];
+		if (!val) return val as null | undefined;
+		return Array.isArray(val) ? val : [val];
 	}
 
-	async set(ref: ActivePromptRef | null | undefined): Promise<void> {
+	async set(refs: ActivePromptRef[] | ActivePromptRef | null | undefined): Promise<void> {
 		try {
 			const all = this.readAll();
-			if (ref === undefined) delete all[this.key];
-			else all[this.key] = ref;
+			if (refs === undefined) {
+				delete all[this.key];
+			} else if (refs === null) {
+				all[this.key] = null;
+			} else {
+				all[this.key] = Array.isArray(refs) ? refs : [refs];
+			}
 			fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
 			// Temp file + rename: a crash mid-write never leaves a half-written file.
 			const tmp = `${this.filePath}.${process.pid}.tmp`;

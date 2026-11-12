@@ -18,7 +18,7 @@ import type { SessionPromptConfig } from "./types/session-prompt-config.type";
 import type { DefaultPromptPort } from "../ports/default-prompt.port";
 import type { SessionStatePort } from "../ports/session-state.port";
 import type { StoragePort } from "../ports/storage.port";
-import type { UIPort } from "../ports/ui.port";
+import type { UIPort, MultiSelectItem, SelectPromptToEditResult } from "../ports/ui.port";
 
 export const NONE_OPTION = "(None / Default)";
 export const CREATE_NEW_OPTION = "+ Create new prompt...";
@@ -103,6 +103,12 @@ export interface ResolvedSessionPromptConfig extends SessionPromptConfig {
 	activePrompts: ActivePromptRef[];
 }
 
+const CREATE_ACTION_SCOPE = {
+	"create-local": PromptScope.Local,
+	"create-omp": PromptScope.GlobalOmp,
+	"create-pi": PromptScope.GlobalPi,
+} as const;
+
 export class PromptService {
 	private readonly host: HostPlatform;
 
@@ -155,11 +161,14 @@ export class PromptService {
 			return;
 		}
 
-		const activeList = config.activePrompts;
-		const primary = activeList[0];
-		const label = primary
-			? `[${formatScope(primary.scope)}] ${primary.name}`
-			: "(none)";
+		// Injections last one turn, so the banner hides them; the primary (index 0) is always shown.
+		const activeList = config.activePrompts.filter((p, i) => !p.injected || i === 0);
+		const label =
+			activeList.length > 0
+				? activeList
+						.map((p) => `[${formatScope(p.scope)}] ${p.name}`)
+						.join(" + ")
+				: "(none)";
 
 		this.ui.setWidget([
 			`╭─ 🎯 Active Prompt: ${label} (${config.mode} mode) ─╮`,
@@ -209,7 +218,11 @@ export class PromptService {
 		config: ResolvedSessionPromptConfig,
 		files: PromptFileInfo[],
 	): Promise<string | undefined> {
+		const isPromptActive = (name: string, scope: PromptScope) =>
+			config.activePrompts.some((p) => p.name === name && p.scope === scope);
+
 		const options: string[] = [
+			"(Done)",
 			config.file === null && config.activePrompts.length === 0
 				? `${NONE_OPTION}  ✓`
 				: NONE_OPTION,
@@ -219,11 +232,10 @@ export class PromptService {
 		];
 		for (const file of files) {
 			const formatted = `[${formatScope(file.scope)}] ${file.name}`;
-			const isSelected =
-				file.name === config.file && (!config.scope || config.scope === file.scope);
+			const isSelected = isPromptActive(file.name, file.scope);
 			options.push(isSelected ? `${formatted}  ✓` : formatted);
 		}
-		return this.ui.select("Select System Prompt (Session Scoped)", options);
+		return this.ui.select("Select System Prompt(s) (Session Scoped)", options);
 	}
 
 	/** Maps a `/sps-select` argument to the picker option it stands for; warns and returns undefined when none or several match. */
@@ -241,66 +253,222 @@ export class PromptService {
 		return undefined;
 	}
 
-	/**
-	 * `arg` selects without the picker: `none`, `<name>` or `[local|omp|pi] <name>`
-	 * (the picker's own labels), so a client without a terminal can switch prompts.
-	 */
-	async selectPrompt(sessionId: string, arg = ""): Promise<string | null | undefined> {
-		const config = await this.getCurrentConfig(sessionId);
+	/** Parses `/sps-select` arguments: null = `none`, undefined = a name did not resolve (already warned). */
+	private resolveSelectArgs(
+		arg: string,
+		files: PromptFileInfo[],
+	): ActivePromptRef[] | null | undefined {
+		if (arg.toLowerCase() === "none") return null;
+		// A `[scope]` token belongs to the name after it; names never contain whitespace.
+		const tokens = arg.split(/\s+/);
+		const refs: ActivePromptRef[] = [];
+		for (let i = 0; i < tokens.length; i++) {
+			const scoped = /^\[(local|omp|pi)\]$/.test(tokens[i]) && i + 1 < tokens.length;
+			const choice = this.resolveSelectArg(scoped ? `${tokens[i]} ${tokens[++i]}` : tokens[i], files);
+			if (!choice) return undefined;
+			if (choice === NONE_OPTION) {
+				this.ui.notify('"none" cannot be combined with other names.', "warning");
+				return undefined;
+			}
+			const parsed = this.parseOption(choice);
+			const ref = { name: parsed.name, scope: resolveScope(parsed.scope, this.host) };
+			if (!refs.some((r) => r.name === ref.name && r.scope === ref.scope)) refs.push(ref);
+		}
+		return refs;
+	}
+
+	/** Argument completions for `/sps-select` and `/sps-edit`: names not typed yet; `value` replaces the whole argument text. */
+	async completePromptArgs(
+		prefix: string,
+	): Promise<Array<{ value: string; label: string; description: string }> | null> {
 		const files = await this.storage.list();
+		const typed = prefix.split(/\s+/);
+		const partial = typed.pop() ?? "";
+		const head = typed.length > 0 ? `${typed.join(" ")} ` : "";
+		const items = files
+			.filter((f) => f.name.startsWith(partial) && !typed.includes(f.name))
+			.map((f) => {
+				const ambiguous = files.some((g) => g.name === f.name && g.scope !== f.scope);
+				const token = ambiguous ? `[${formatScope(f.scope)}] ${f.name}` : f.name;
+				return { value: `${head}${token}`, label: f.name, description: formatScope(f.scope) };
+			});
+		return items.length > 0 ? items : null;
+	}
 
-		const choice = arg.trim()
-			? this.resolveSelectArg(arg.trim(), files)
-			: await this.pickPrompt(config, files);
-		if (!choice) return undefined;
+	private buildMultiSelectItems(
+		files: PromptFileInfo[],
+		activePrompts: ActivePromptRef[] = [],
+	): MultiSelectItem[] {
+		const isPromptActive = (name: string, scope: PromptScope) =>
+			activePrompts.some((p) => !p.injected && p.name === name && p.scope === scope);
 
-		const cleanChoice = choice.replace(/\s+✓$/, "").trim();
-		if (cleanChoice === CREATE_NEW_OMP_OPTION || cleanChoice === CREATE_NEW_OPTION) {
-			return this.createNewPrompt(sessionId, PromptScope.GlobalOmp);
-		}
-		if (cleanChoice === CREATE_NEW_PI_OPTION) {
-			return this.createNewPrompt(sessionId, PromptScope.GlobalPi);
-		}
-		if (cleanChoice === CREATE_NEW_LOCAL_OPTION) {
-			return this.createNewPrompt(sessionId, PromptScope.Local);
+		const items: MultiSelectItem[] = [
+			{
+				id: "__save__",
+				label: "Done / Save Selection (Ctrl+S)",
+				selected: false,
+				isSpecial: "save",
+			},
+			{
+				id: "__none__",
+				label: "None / Clear all",
+				selected: false,
+				isSpecial: "none",
+			},
+		];
+
+		for (const file of files) {
+			const label = `[${formatScope(file.scope)}] ${file.name}`;
+			items.push({
+				id: label,
+				label,
+				selected: isPromptActive(file.name, file.scope),
+				name: file.name,
+				scope: file.scope,
+				loadContent: () => this.storage.read(file.name, file.scope),
+			});
 		}
 
-		const parsed = this.parseOption(choice);
-		if (parsed.name === NONE_OPTION) {
-			config.file = null;
-			config.scope = undefined;
-			config.activePrompts = [];
-			config.decided = true;
-			await this.sessionState.setSessionConfig(sessionId, config);
-			await this.defaultPrompt.set(null);
-			await this.updateStatus(sessionId);
-			logger.info("PROMPT_CLEAR", "Prompt cleared for session", { sessionId });
-			this.ui.notify(
-				"System prompt cleared. Takes effect on your next message.",
-				"info",
-			);
-			return null;
-		}
+		items.push(
+			{
+				id: "__create_local__",
+				label: CREATE_NEW_LOCAL_OPTION,
+				selected: false,
+				isSpecial: "create-local",
+			},
+			{
+				id: "__create_omp__",
+				label: CREATE_NEW_OMP_OPTION,
+				selected: false,
+				isSpecial: "create-omp",
+			},
+			{
+				id: "__create_pi__",
+				label: CREATE_NEW_PI_OPTION,
+				selected: false,
+				isSpecial: "create-pi",
+			},
+		);
 
-		const selectedScope = resolveScope(parsed.scope, this.host);
-		config.file = parsed.name;
-		config.scope = selectedScope;
-		config.activePrompts = [{ name: parsed.name, scope: selectedScope }];
+		return items;
+	}
+
+	/**
+	 * Saves `refs` as the session's selection and the project default (empty = None), then redraws the banner.
+	 * Pending injections stay in the session but never reach the default.
+	 */
+	private async applySelection(sessionId: string, refs: ActivePromptRef[]): Promise<void> {
+		const config = await this.getCurrentConfig(sessionId);
+		config.activePrompts = refs;
+		config.file = refs[0]?.name ?? null;
+		config.scope = refs[0]?.scope;
 		config.enabled = true;
 		config.decided = true;
 		await this.sessionState.setSessionConfig(sessionId, config);
-		await this.defaultPrompt.set({ name: parsed.name, scope: selectedScope });
+		const persisted = refs.filter((p) => !p.injected);
+		await this.defaultPrompt.set(persisted.length > 0 ? persisted : null);
 		await this.updateStatus(sessionId);
-		logger.info("PROMPT_SELECT", `Selected ${parsed.name}`, {
+		logger.info(refs.length > 0 ? "PROMPT_SELECT" : "PROMPT_CLEAR", `Selection now has ${refs.length} prompt(s)`, {
 			sessionId,
-			scope: parsed.scope,
+			prompts: refs,
 		});
-		const scopeLabel = config.scope ? `[${config.scope}] ` : "";
+	}
+
+	private announceSelection(refs: ActivePromptRef[]): void {
+		const label = refs.map((p) => `[${formatScope(p.scope)}] "${p.name}"`).join(" + ");
 		this.ui.notify(
-			`System prompt ${scopeLabel}"${config.file}" activated. Takes effect on your next message.`,
+			refs.length > 0
+				? `Active system prompt(s): ${label}. Takes effect on your next message.`
+				: "System prompt cleared. Takes effect on your next message.",
 			"info",
 		);
-		return parsed.name;
+	}
+
+	/** applySelection + the confirmation message; returns the primary prompt's name (null when cleared). */
+	private async finishSelection(sessionId: string, refs: ActivePromptRef[]): Promise<string | null> {
+		await this.applySelection(sessionId, refs);
+		this.announceSelection(refs);
+		return refs[0]?.name ?? null;
+	}
+
+	private refsFromIds(ids: string[]): ActivePromptRef[] {
+		return ids.map((id) => {
+			const parsed = this.parseOption(id);
+			return { name: parsed.name, scope: resolveScope(parsed.scope, this.host) };
+		});
+	}
+
+	/**
+	 * `arg` selects without the picker: `none`, or one or more names, each `<name>` or
+	 * `[local|omp|pi] <name>` (the picker's own labels), so a client without a terminal can switch prompts.
+	 */
+	async selectPrompt(sessionId: string, arg = ""): Promise<string | null | undefined> {
+		if (arg.trim()) {
+			const refs = this.resolveSelectArgs(arg.trim(), await this.storage.list());
+			if (refs === undefined) return undefined;
+			return this.finishSelection(sessionId, refs ?? []);
+		}
+
+		if (this.ui.hasUI() && typeof this.ui.multiSelect === "function") {
+			const config = await this.getCurrentConfig(sessionId);
+			const files = await this.storage.list();
+			const items = this.buildMultiSelectItems(files, config.activePrompts);
+
+			const result = await this.ui.multiSelect(
+				"Select System Prompt(s) (Session Scoped)",
+				items,
+			);
+			if (result !== undefined) {
+				if (result.cancelled) return config.file;
+				const ticked = this.refsFromIds(result.selectedIds);
+				if (result.action) {
+					return this.createNewPrompt(sessionId, CREATE_ACTION_SCOPE[result.action], ticked);
+				}
+				return this.finishSelection(sessionId, ticked);
+			}
+		}
+
+		// No checkbox list on this host: the single-select picker toggles one prompt per pick until (Done).
+		let changed = false;
+		let lastHandledChoice: string | undefined;
+		while (true) {
+			const config = await this.getCurrentConfig(sessionId);
+			const files = await this.storage.list();
+			const choice = await this.pickPrompt(config, files);
+			if (!choice || choice === "(Done)" || choice === lastHandledChoice) break;
+			lastHandledChoice = choice;
+
+			const cleanChoice = choice.replace(/\s+✓$/, "").trim();
+			const createScope =
+				cleanChoice === CREATE_NEW_OMP_OPTION || cleanChoice === CREATE_NEW_OPTION
+					? PromptScope.GlobalOmp
+					: cleanChoice === CREATE_NEW_PI_OPTION
+						? PromptScope.GlobalPi
+						: cleanChoice === CREATE_NEW_LOCAL_OPTION
+							? PromptScope.Local
+							: undefined;
+			if (createScope) {
+				return this.createNewPrompt(sessionId, createScope, config.activePrompts.filter((p) => !p.injected));
+			}
+
+			const parsed = this.parseOption(cleanChoice);
+			if (parsed.name === NONE_OPTION) return this.finishSelection(sessionId, []);
+
+			const scope = resolveScope(parsed.scope, this.host);
+			const isActive = (p: ActivePromptRef) => p.name === parsed.name && p.scope === scope;
+			await this.applySelection(
+				sessionId,
+				config.activePrompts.some(isActive)
+					? config.activePrompts.filter((p) => !isActive(p))
+					: [...config.activePrompts, { name: parsed.name, scope }],
+			);
+			changed = true;
+		}
+
+		if (!changed) return undefined;
+		const finalConfig = await this.getCurrentConfig(sessionId);
+		this.announceSelection(finalConfig.activePrompts);
+		return finalConfig.file;
 	}
 
 	async injectPrompt(sessionId: string): Promise<void> {
@@ -414,13 +582,13 @@ export class PromptService {
 		}
 	}
 
-	private async promptForPromptName(): Promise<string | null> {
+	private async promptForPromptName(
+		title = "Enter prompt file name (e.g. backend-dev.md):",
+		placeholder?: string,
+	): Promise<string | null> {
 		while (true) {
-			const rawName = await this.ui.input(
-				"Enter prompt file name (e.g. backend-dev.md):",
-			);
+			const rawName = await this.ui.input(title, placeholder);
 			if (rawName === undefined) {
-				this.ui.notify("Prompt creation cancelled.", "info");
 				return null;
 			}
 			const trimmed = rawName.trim();
@@ -465,9 +633,11 @@ export class PromptService {
 	async createNewPrompt(
 		sessionId?: string,
 		preselectedScope?: PromptScope,
+		keep: ActivePromptRef[] = [],
 	): Promise<string | null> {
 		const cleanName = await this.promptForPromptName();
 		if (cleanName === null) {
+			this.ui.notify("Prompt creation cancelled.", "info");
 			return null;
 		}
 
@@ -520,15 +690,7 @@ export class PromptService {
 		});
 
 		if (sessionId) {
-			const config = await this.getCurrentConfig(sessionId);
-			config.file = cleanName;
-			config.scope = targetScope;
-			config.activePrompts = [{ name: cleanName, scope: targetScope }];
-			config.enabled = true;
-			config.decided = true;
-			await this.sessionState.setSessionConfig(sessionId, config);
-			await this.defaultPrompt.set({ name: cleanName, scope: targetScope });
-			await this.updateStatus(sessionId);
+			await this.applySelection(sessionId, [...keep, { name: cleanName, scope: targetScope }]);
 			this.ui.notify(
 				`Saved and activated [${targetScope}] "${cleanName}".\nPath: ${fullPath}`,
 				"info",
@@ -543,7 +705,100 @@ export class PromptService {
 		return cleanName;
 	}
 
-	async editPrompt(sessionId: string): Promise<boolean> {
+	async renamePrompt(
+		oldName: string,
+		scope: PromptScope,
+		sessionId?: string,
+	): Promise<string | null> {
+		const newCleanName = await this.promptForPromptName(
+			`Rename prompt "${oldName}":`,
+			oldName.replace(/\.md$/, ""),
+		);
+		if (newCleanName === null) {
+			this.ui.notify("Prompt rename cancelled.", "info");
+			return null;
+		}
+		if (newCleanName === oldName) {
+			this.ui.notify("Prompt name unchanged.", "info");
+			return oldName;
+		}
+
+		const resolvedTargetScope = resolveScope(scope, this.host);
+		const existing = await this.storage.read(newCleanName, resolvedTargetScope);
+		// A case-only rename "finds" the old file on a case-insensitive filesystem; the adapter still refuses to overwrite a different one.
+		if (existing !== null && newCleanName.toLowerCase() !== oldName.toLowerCase()) {
+			this.ui.notify(
+				`Prompt "${newCleanName}" already exists in ${formatScope(resolvedTargetScope)} scope!`,
+				"error",
+			);
+			return null;
+		}
+
+		if (typeof this.storage.rename === "function") {
+			const success = await this.storage.rename(oldName, newCleanName, resolvedTargetScope);
+			if (!success) {
+				this.ui.notify(`Failed to rename "${oldName}".`, "error");
+				return null;
+			}
+		} else {
+			const content = await this.storage.read(oldName, resolvedTargetScope);
+			if (content === null) {
+				this.ui.notify(`Could not read "${oldName}" to rename.`, "error");
+				return null;
+			}
+			await this.storage.write(newCleanName, content, resolvedTargetScope);
+			await this.storage.delete(oldName, resolvedTargetScope);
+		}
+
+		if (sessionId) {
+			const config = await this.getCurrentConfig(sessionId);
+			let configUpdated = false;
+			if (config.file === oldName && config.scope === resolvedTargetScope) {
+				config.file = newCleanName;
+				configUpdated = true;
+			}
+			for (const p of config.activePrompts) {
+				if (p.name === oldName && p.scope === resolvedTargetScope) {
+					p.name = newCleanName;
+					configUpdated = true;
+				}
+			}
+			if (configUpdated) {
+				await this.sessionState.setSessionConfig(sessionId, config);
+				await this.updateStatus(sessionId);
+			}
+
+			const defaults = await this.defaultPrompt.get();
+			if (defaults && defaults.length > 0) {
+				let defUpdated = false;
+				for (const d of defaults) {
+					if (d.name === oldName && d.scope === resolvedTargetScope) {
+						d.name = newCleanName;
+						defUpdated = true;
+					}
+				}
+				if (defUpdated) {
+					await this.defaultPrompt.set(defaults);
+				}
+			}
+		}
+
+		logger.info("PROMPT_RENAME", `Renamed prompt "${oldName}" to "${newCleanName}"`, {
+			scope: resolvedTargetScope,
+			oldName,
+			newName: newCleanName,
+			sessionId,
+		});
+
+		this.ui.notify(
+			`Renamed prompt [${formatScope(resolvedTargetScope)}] "${oldName}" to "${newCleanName}".`,
+			"info",
+		);
+
+		return newCleanName;
+	}
+
+	async editPrompt(sessionId: string, arg = ""): Promise<boolean> {
 		const files = await this.storage.list();
 		if (files.length === 0) {
 			this.ui.notify("No prompt files found. Creating a new one...", "info");
@@ -551,21 +806,69 @@ export class PromptService {
 			return created !== null;
 		}
 
-		const config = await this.getCurrentConfig(sessionId);
-		let targetFile: string | undefined = config.file ?? undefined;
-		// getCurrentConfig already normalises any legacy bare "global" to the
-		// detected host's explicit scope, so no legacy union is needed here.
-		let targetScope: PromptScope | undefined = config.scope;
+		let targetFile: string | undefined;
+		let targetScope: PromptScope | undefined;
 
-		if (!targetFile || !files.some((f) => f.name === targetFile)) {
-			const choice = await this.ui.select(
-				"Select prompt to edit",
-				files.map((f) => `[${formatScope(f.scope)}] ${f.name}`),
-			);
-			if (!choice) return false;
+		if (arg.trim()) {
+			const choice = this.resolveSelectArg(arg.trim(), files);
+			if (!choice || choice === NONE_OPTION) return false;
 			const parsed = this.parseOption(choice);
 			targetFile = parsed.name;
 			targetScope = parsed.scope;
+		} else {
+			let preferredSelection: string | undefined;
+
+			while (true) {
+				const currentFiles = await this.storage.list();
+				if (currentFiles.length === 0) {
+					this.ui.notify("No prompt files found. Creating a new one...", "info");
+					const created = await this.createNewPrompt(sessionId);
+					return created !== null;
+				}
+
+				const options = currentFiles.map((f) => `[${formatScope(f.scope)}] ${f.name}`);
+				let initialIndex = 0;
+				if (preferredSelection) {
+					const idx = options.findIndex((opt) => opt === preferredSelection);
+					if (idx >= 0) initialIndex = idx;
+				}
+
+				let res: SelectPromptToEditResult | undefined;
+				if (typeof this.ui.selectPromptToEdit === "function") {
+					res = await this.ui.selectPromptToEdit(
+						"Select prompt to edit",
+						options,
+						initialIndex,
+					);
+				}
+				if (!res) {
+					const rawChoice = await this.ui.select("Select prompt to edit", options);
+					if (rawChoice) {
+						res = { action: "edit", choice: rawChoice };
+					} else {
+						res = { cancelled: true };
+					}
+				}
+
+				if (!res || res.cancelled || !res.choice) return false;
+
+				const parsed = this.parseOption(res.choice);
+				const selectedScope = resolveScope(parsed.scope, this.host);
+
+				if (res.action === "rename") {
+					const renamed = await this.renamePrompt(parsed.name, selectedScope, sessionId);
+					if (renamed) {
+						preferredSelection = `[${formatScope(selectedScope)}] ${renamed}`;
+					} else {
+						preferredSelection = res.choice;
+					}
+					continue;
+				}
+
+				targetFile = parsed.name;
+				targetScope = selectedScope;
+				break;
+			}
 		}
 
 		const resolvedTargetScope = resolveScope(targetScope, this.host);
@@ -778,30 +1081,46 @@ export class PromptService {
 
 	/** Applies the project's default to a fresh session; false when the picker must show. */
 	private async applyDefault(sessionId: string): Promise<boolean> {
-		const fav = await this.defaultPrompt.get();
-		if (fav === undefined) return false;
-		if (fav !== null) {
+		const favs = await this.defaultPrompt.get();
+		if (favs === undefined) return false;
+		if (favs !== null && favs.length > 0) {
 			const files = await this.storage.list();
-			if (!files.some((f) => f.name === fav.name && f.scope === fav.scope)) {
+			const validFavs = favs.filter((fav) =>
+				files.some((f) => f.name === fav.name && f.scope === fav.scope),
+			);
+			if (validFavs.length === 0) {
 				await this.defaultPrompt.set(undefined);
 				this.ui.notify(
-					`Default prompt "${fav.name}" no longer exists; pick a new one.`,
+					`Default prompt(s) no longer exist; pick a new one.`,
 					"warning",
 				);
 				return false;
 			}
+			await this.sessionState.setSessionConfig(sessionId, {
+				file: validFavs[0].name,
+				scope: validFavs[0].scope,
+				activePrompts: validFavs,
+				mode: "append",
+				enabled: true,
+				decided: true,
+			});
+			await this.updateStatus(sessionId);
+			const label = validFavs.map((f) => `[${formatScope(f.scope)}] "${f.name}"`).join(" + ");
+			logger.info("DEFAULT_APPLY", `Applied default ${label}`, { sessionId });
+			this.ui.notify(`Default system prompt(s) ${label} applied.`, "info");
+			return true;
 		}
+
 		await this.sessionState.setSessionConfig(sessionId, {
-			file: fav?.name ?? null,
-			scope: fav?.scope,
-			activePrompts: fav ? [fav] : [],
+			file: null,
+			scope: undefined,
+			activePrompts: [],
 			mode: "append",
 			enabled: true,
 			decided: true,
 		});
 		await this.updateStatus(sessionId);
-		logger.info("DEFAULT_APPLY", `Applied default ${fav?.name ?? "none"}`, { sessionId });
-		if (fav) this.ui.notify(`Default system prompt [${formatScope(fav.scope)}] "${fav.name}" applied.`, "info");
+		logger.info("DEFAULT_APPLY", "Applied default none", { sessionId });
 		return true;
 	}
 
@@ -819,9 +1138,58 @@ export class PromptService {
 
 
 		const files = await this.storage.list();
-		// ponytail: never pre-tick an option. A tick on (None / Default) made the
-		// picker answer itself on a fresh session, so the user got a prompt they
-		// had not chosen — and a second default alongside their selection.
+
+		if (typeof this.ui.multiSelect === "function") {
+			// ponytail: never pre-tick an option on a fresh session.
+			const items = this.buildMultiSelectItems(files, []);
+
+			logger.info("MODAL_OPEN", "startup prompt modal opened", {
+				sessionId,
+				itemCount: items.length,
+			});
+
+			const result = await this.ui.multiSelect(
+				"Select System Prompt(s) (Session Scoped)",
+				items,
+			);
+			if (result !== undefined) {
+				if (result.cancelled) {
+					const config: SessionPromptConfig = {
+						file: null,
+						scope: undefined,
+						activePrompts: [],
+						mode: "append",
+						enabled: true,
+						decided: true,
+					};
+					await this.sessionState.setSessionConfig(sessionId, config);
+					await this.updateStatus(sessionId);
+					logger.info("MODAL_DEFAULT_NONE", "Dismissed modal -> default None", {
+						sessionId,
+					});
+					this.ui.notify(
+						"Using default system prompt (none). Takes effect on your next message.",
+						"info",
+					);
+					return;
+				}
+
+				if (result.action) {
+					await this.createNewPrompt(
+						sessionId,
+						CREATE_ACTION_SCOPE[result.action],
+						this.refsFromIds(result.selectedIds),
+					);
+					return;
+				}
+
+				// Ticking nothing saves (None) as the project default.
+				await this.finishSelection(sessionId, this.refsFromIds(result.selectedIds));
+				return;
+			}
+		}
+
+		// Fallback to single select when multiSelect is not available or returned undefined
 		const options: string[] = [
 			NONE_OPTION,
 			CREATE_NEW_OMP_OPTION,
@@ -893,7 +1261,7 @@ export class PromptService {
 		};
 
 		await this.sessionState.setSessionConfig(sessionId, config);
-		await this.defaultPrompt.set(file ? { name: file, scope: chosenScope } : null);
+		await this.defaultPrompt.set(file ? [{ name: file, scope: chosenScope }] : null);
 		await this.updateStatus(sessionId);
 		logger.info("MODAL_SELECT", `Modal selected ${file ?? "none"}`, {
 			sessionId,
@@ -987,7 +1355,6 @@ export class PromptService {
 				});
 			}
 		}
-
 		// ponytail: consume injected entries after one turn. Keep the primary
 		// (index 0) even if it somehow carries injected: true; defensive only,
 		// the inject modal refuses to toggle-off the primary.

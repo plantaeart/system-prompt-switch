@@ -107,6 +107,7 @@ export default function systemPromptSwitchExtension(pi: ExtensionAPI): void {
 
 	pi.registerCommand(ExtensionCommand.SELECT, {
 		description: EXTENSION_COMMAND_CATALOG[ExtensionCommand.SELECT].description,
+		getArgumentCompletions: (prefix: string) => service.completePromptArgs(prefix),
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			const sessionId = bindHost(ctx);
 			await service.selectPrompt(sessionId, args);
@@ -132,9 +133,10 @@ export default function systemPromptSwitchExtension(pi: ExtensionAPI): void {
 
 	pi.registerCommand(ExtensionCommand.EDIT, {
 		description: EXTENSION_COMMAND_CATALOG[ExtensionCommand.EDIT].description,
-		handler: async (_args: string, ctx: ExtensionCommandContext) => {
+		getArgumentCompletions: (prefix: string) => service.completePromptArgs(prefix),
+		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			const sessionId = bindHost(ctx);
-			await service.editPrompt(sessionId);
+			await service.editPrompt(sessionId, args);
 		},
 	});
 
