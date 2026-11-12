@@ -1,3 +1,5 @@
+<p align="center"><img src="https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/logo/badge.png" alt="SPS logo" width="128"></p>
+
 # system-prompt-switch
 
 > Pick, stack, edit, and forget — system prompts that follow you from Pi to OMP without re-explaining yourself.
