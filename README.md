@@ -2,11 +2,29 @@
 
 # system-prompt-switch
 
-> Pick, stack, edit, and forget — system prompts that follow you from Pi to OMP without re-explaining yourself.
+[![npm version](https://img.shields.io/npm/v/system-prompt-switch)](https://www.npmjs.com/package/system-prompt-switch)
+[![npm downloads](https://img.shields.io/npm/dm/system-prompt-switch)](https://www.npmjs.com/package/system-prompt-switch)
+[![CI](https://github.com/plantaeart/system-prompt-switch/actions/workflows/ci.yml/badge.svg)](https://github.com/plantaeart/system-prompt-switch/actions/workflows/ci.yml)
+[![license](https://img.shields.io/npm/l/system-prompt-switch)](./LICENSE)
+![hosts](https://img.shields.io/badge/host-Pi%20%7C%20OMP-blue)
+
+> Pick, stack, edit, and forget : system prompts that follow you from Pi to OMP without re-explaining yourself.
 
 A Pi / OMP extension that manages custom system prompts per session: interactive modals, cumulative stacking, two scopes (local repo + global home), CRUD commands, and an above-editor banner that always shows what's active.
 
 ![Active prompt banner](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/img1.png)
+
+**Contents:** [Why](#why-not-just-edit-agentsmd) · [Install](#install) · [Screenshots](#screenshots) · [What it does](#what-it-does) · [Commands](#commands) · [How prompts live](#how-prompts-live) · [Environment variables](#environment-variables) · [Developers](#for-developers)
+
+## Why not just edit `AGENTS.md`?
+
+| | `AGENTS.md` / one system file | system-prompt-switch |
+|---|---|---|
+| Switch behavior | Edit the file, restart or reload | `/sps-select`, same session |
+| Several at once | Merge by hand | Stack with `/sps-inject` |
+| Per session | Same for every session in the repo | Bound to the session ID |
+| Repo vs personal | One file | `[local]` committable + `[global]` in your home |
+| What is active | Open the file | Banner above the editor, `/sps-info` |
 
 ---
 
@@ -24,11 +42,17 @@ pi install npm:system-prompt-switch
 
 That's it. The extension registers on next session start. Works in both Pi and OMP.
 
+### Quick start
+
+1. Start Pi or OMP. The startup modal opens.
+2. Run `/sps-new`, name a prompt, write it, **Ctrl+Q** to save.
+3. Run `/sps-select` to switch prompts, or `/sps-inject` to stack several for the next message.
+
 ---
 
 ## Screenshots
 
-Startup session modal — pick a prompt or create one:
+Startup session modal - pick a prompt or create one:
 
 ![Startup session modal](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/img2.png)
 
@@ -62,13 +86,13 @@ Demo GIFs:
 
 ## What it does
 
-- **Per-session prompts** — your active prompt is bound to the session ID, never leaks between concurrent or sequential sessions.
-- **Two scopes, one mental model** — `[local]` lives in your repo (`.agents/system-prompts-switch/`, committable), `[global]` lives in your home (`~/.pi` or `~/.omp/agent/system-prompts-switch/`). Same file can exist in both; local wins for the repo session.
-- **Stack multiple prompts** — `/sps-inject` adds prompts cumulatively. `[global] <system-prompt-name>.md + [local] project-rules.md` is a valid active state.
-- **Above-editor banner** — the active prompt is rendered directly above your input prompt so you never forget which one is loaded.
-- **Self-describing extension context** — every resolved prompt includes a leading block that tells the LLM what this extension is, where prompt files live, and how to inspect/change them. The block is loaded from `assets/templates/extension-context.md` so you can tweak the wording without touching code.
-- **Per-project default** — your last choice in a project (startup modal, `/sps-select`, or a prompt just created with `/sps-new`, including `(None)`) becomes that project's default. New sessions there apply it silently, with no startup modal. Pick another with `/sps-select` to change it. If the default's file is gone, it is forgotten and the modal shows again. Dismissing the modal does not set a default.
-- **Startup modal** — on terminal launch, pick `(None)`, an existing prompt, or create one. Enabled by default; set `promptOnStartup` to `false` to skip it while retaining `/sps-select` and other commands:
+- **Per-session prompts** - your active prompt is bound to the session ID, never leaks between concurrent or sequential sessions.
+- **Two scopes, one mental model** - `[local]` lives in your repo (`.agents/system-prompts-switch/`, committable), `[global]` lives in your home (`~/.pi` or `~/.omp/agent/system-prompts-switch/`). Same file can exist in both; local wins for the repo session.
+- **Stack multiple prompts** - `/sps-inject` adds prompts cumulatively. `[global] <system-prompt-name>.md + [local] project-rules.md` is a valid active state.
+- **Above-editor banner** - the active prompt is rendered directly above your input prompt so you never forget which one is loaded.
+- **Self-describing extension context** - every resolved prompt includes a leading block that tells the LLM what this extension is, where prompt files live, and how to inspect/change them. The block is loaded from `assets/templates/extension-context.md` so you can tweak the wording without touching code.
+- **Per-project default** - your last choice in a project (startup modal, `/sps-select`, or a prompt just created with `/sps-new`, including `(None)`) becomes that project's default. New sessions there apply it silently, with no startup modal. Pick another with `/sps-select` to change it. If the default's file is gone, it is forgotten and the modal shows again. Dismissing the modal does not set a default.
+- **Startup modal** - on terminal launch, pick `(None)`, an existing prompt, or create one. Enabled by default; set `promptOnStartup` to `false` to skip it while retaining `/sps-select` and other commands:
   - **OMP:** `~/.omp/agent/config.yml`
     ```yaml
     systemPromptSwitch:
@@ -78,7 +102,7 @@ Demo GIFs:
     ```json
     { "promptOnStartup": false }
     ```
-- **Merge modes** — `append` (default, safe) keeps base instructions; `replace` uses your prompt as the base while preserving tools, skills, and project context.
+- **Merge modes** - `append` (default, safe) keeps base instructions; `replace` uses your prompt as the base while preserving tools, skills, and project context.
 - **Live logging** to `~/.pi/agent/logs/system-prompt-switch.log` / `~/.omp/agent/logs/system-prompt-switch.log`, with `/sps-logs [lines]` inside the session.
 
 ---
@@ -132,9 +156,26 @@ Over ACP the startup modal does not block: the client may send the first message
 
 ---
 
+## Environment variables
+
+All optional. Set them in the shell that launches Pi or OMP.
+
+| Variable | Effect |
+|---|---|
+| `SPS_LOCAL_PROMPT_DIR` | Local (repo) prompt directory instead of `<cwd>/.agents/system-prompts-switch/` |
+| `SPS_PROMPT_DIR` / `SYSTEM_PROMPT_DIR` | Global prompt directory instead of the host default |
+| `SPS_STATE_PATH` | Session state file (`sessions.json`); `defaults.json` follows it |
+| `SPS_LOG_PATH` | Log file path |
+| `SPS_START_PICKER=0` | Skip the startup modal (for clients that pick the prompt themselves) |
+| `SPS_HOST=pi\|omp` | Force host detection when it is wrong |
+
+The startup modal can also be turned off with the `promptOnStartup` setting, see [What it does](#what-it-does).
+
+---
+
 ## Editor shortcut note
 
-When `/sps-new` or `/sps-edit` opens the built-in editor, an above-editor banner shows the **real** shortcuts: **Ctrl+Q** to submit, **Esc** to cancel. The host's footer also advertises `Ctrl+Enter submit` and `Ctrl+G external editor` — these are **not** wired by this extension; ignore them.
+When `/sps-new` or `/sps-edit` opens the built-in editor, an above-editor banner shows the **real** shortcuts: **Ctrl+Q** to submit, **Esc** to cancel. The host's footer also advertises `Ctrl+Enter submit` and `Ctrl+G external editor` - these are **not** wired by this extension; ignore them.
 
 ---
 
