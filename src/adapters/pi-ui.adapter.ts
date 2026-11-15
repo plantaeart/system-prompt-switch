@@ -1,4 +1,11 @@
-import { stripTerminalSequences, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import {
+	Editor,
+	type EditorTheme,
+	stripTerminalSequences,
+	truncateToWidth,
+	type TUI,
+	wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
 import { logger } from "../core/logger";
 import type {
 	MultiSelectItem,
@@ -185,6 +192,72 @@ function listComponent(
 		},
 
 		invalidate,
+	};
+}
+
+interface EditorComponentOptions {
+	title: string;
+	prefill?: string;
+	onDone(value: string | undefined): void;
+}
+
+function editorComponent(
+	opts: EditorComponentOptions,
+	tui: ListTui,
+	theme: ListTheme,
+	keybindings: ListKeybindings,
+): ListComponent {
+	const safeTui = {
+		terminal: { rows: 24, columns: 80 },
+		...tui,
+	};
+	const safeTheme = {
+		borderColor: (s: string) => fg(theme, "muted", s),
+		selectActiveRow: (s: string) => s,
+		selectInactiveRow: (s: string) => s,
+		...theme,
+	};
+	const editor = new Editor(safeTui as unknown as TUI, safeTheme as unknown as EditorTheme, {
+		paddingX: 1,
+	});
+	editor.focused = true;
+	if (opts.prefill !== undefined) {
+		editor.setText(opts.prefill);
+		// ponytail: setText pushes an initial empty-string snapshot onto undoStack.
+		// Clearing undoStack ensures repeated Ctrl+Z cannot undo past the prefilled content,
+		// preventing accidental deletion/clearing of prompt files when fixing typos.
+		(editor as unknown as { undoStack?: { clear(): void } }).undoStack?.clear();
+	}
+	editor.onSubmit = (text: string) => opts.onDone(text);
+
+	return {
+		render(width: number): string[] {
+			const lines = [
+				bold(theme, fg(theme, "accent", opts.title)),
+				...editor.render(width),
+				fg(theme, "dim", "Ctrl+Q / Ctrl+S: Save · Esc: Cancel · Ctrl+Z: Undo"),
+			];
+			return lines.map((line) => truncateToWidth(line, width, ""));
+		},
+		handleInput(data: string): void {
+			if (isCtrlKey(data, "q") || isCtrlKey(data, "s")) {
+				opts.onDone(editor.getText());
+				return;
+			}
+			if (data === "\x1b" || Boolean(keybindings.matches?.(data, "tui.select.cancel"))) {
+				opts.onDone(undefined);
+				return;
+			}
+			if (isCtrlKey(data, "z") || Boolean(keybindings.matches?.(data, "tui.editor.undo"))) {
+				(editor as unknown as { undo?(): void }).undo?.();
+				tui.requestRender();
+				return;
+			}
+			editor.handleInput(data);
+		},
+		invalidate(): void {
+			editor.invalidate?.();
+		},
 	};
 }
 
@@ -449,6 +522,20 @@ export class PiUIAdapter implements UIPort {
 
 	async editor(title: string, prefill?: string): Promise<string | undefined> {
 		if (!this.host?.hasUI) return undefined;
+		if (typeof this.host.ui.custom === "function") {
+			return this.host.ui.custom<string | undefined>((tui, theme, keybindings, done) =>
+				editorComponent(
+					{
+						title,
+						prefill,
+						onDone: done,
+					},
+					tui,
+					theme,
+					keybindings,
+				),
+			);
+		}
 		return this.host.ui.editor(title, prefill);
 	}
 

@@ -322,3 +322,81 @@ describe("PiUIAdapter list rendering and navigation", () => {
 		});
 	});
 });
+
+describe("PiUIAdapter custom editor undo behavior", () => {
+	function openEditor(title: string, prefill?: string) {
+		const { host, component } = hostWithComponent();
+		const ui = new PiUIAdapter();
+		ui.setHost(host);
+		const promise = ui.editor(title, prefill);
+		return { ui, component, promise };
+	}
+
+	it("clears undo stack on prefill so repeated Ctrl+Z never clears initial content to empty", async () => {
+		const initialContent = "# Initial prompt content\nLine 2";
+		const { component, promise } = openEditor("Edit prompt", initialContent);
+
+		// Verify initial render contains title and content
+		const lines = component().render(80);
+		expect(lines[0]).toContain("Edit prompt");
+		expect(lines.join("\n")).toContain("Initial prompt content");
+
+		// Type something extra with a whitespace to form an undo unit
+		component().handleInput?.("x");
+		component().handleInput?.(" ");
+		component().handleInput?.("y");
+		expect(component().render(80).join("\n")).toContain("x y");
+
+		// Undo: reverts the extra typing step by step
+		component().handleInput?.("\x1a"); // Ctrl+Z
+		component().handleInput?.("\x1a"); // Ctrl+Z
+		const restoredText = component().render(80).join("\n");
+		expect(restoredText).toContain("Initial prompt content");
+		expect(restoredText).toContain("Line 2");
+		expect(restoredText).not.toContain("x y");
+
+		// Repeated Ctrl+Z (10 times) must NOT clear the prefilled content to blank!
+		for (let i = 0; i < 10; i++) {
+			component().handleInput?.("\x1a");
+		}
+		const textAfterManyUndos = component().render(80).join("\n");
+		expect(textAfterManyUndos).toContain("Initial prompt content");
+		expect(textAfterManyUndos).toContain("Line 2");
+
+		// Save with Ctrl+Q
+		component().handleInput?.("\x11");
+		expect(await promise).toBe(initialContent);
+	});
+
+	it("cancels editor with Esc returning undefined", async () => {
+		const { component, promise } = openEditor("Edit prompt", "Some content");
+		component().handleInput?.("\x1b");
+		expect(await promise).toBeUndefined();
+	});
+
+	it("saves editor with Ctrl+S", async () => {
+		const { component, promise } = openEditor("Edit prompt", "Some content");
+		component().handleInput?.("\x13"); // Ctrl+S
+		expect(await promise).toBe("Some content");
+	});
+
+	it("falls back to host.ui.editor when host.ui.custom is not available", async () => {
+		let fallbackCalled = false;
+		const fallbackHost = {
+			hasUI: true,
+			ui: {
+				editor: async (title: string, prefill?: string) => {
+					fallbackCalled = true;
+					return `${title}:${prefill}`;
+				},
+			},
+		} as unknown as PiUIHost;
+
+		const ui = new PiUIAdapter();
+		ui.setHost(fallbackHost);
+
+		const result = await ui.editor("Fallback title", "Fallback prefill");
+		expect(fallbackCalled).toBe(true);
+		expect(result).toBe("Fallback title:Fallback prefill");
+	});
+});
