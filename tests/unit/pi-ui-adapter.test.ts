@@ -1,11 +1,21 @@
 import { describe, expect, it } from "bun:test";
-import { PiUIAdapter, type PiUIHost } from "../../src/adapters/pi-ui.adapter";
+import {
+	editorComponent,
+	editInExternalEditor,
+	PiUIAdapter,
+	type PiUIHost,
+} from "../../src/adapters/pi-ui.adapter";
 
 type Component = { handleInput?(data: string): void; render(width: number): string[] };
 
 /** Host whose ui.custom hands the component back so a test can type into it. */
-function hostWithComponent(): { host: PiUIHost; component: () => Component } {
+function hostWithComponent(): {
+	host: PiUIHost;
+	component: () => Component;
+	tuiCalls: { stop: number; start: number; requestRender: number };
+} {
 	let component: Component | undefined;
+	const tuiCalls = { stop: 0, start: 0, requestRender: 0 };
 	const host = {
 		hasUI: true,
 		ui: {
@@ -13,12 +23,27 @@ function hostWithComponent(): { host: PiUIHost; component: () => Component } {
 				factory: (tui: unknown, theme: unknown, kb: unknown, done: (v: T) => void) => Component,
 			) => {
 				const { promise, resolve } = Promise.withResolvers<T>();
-				component = factory({ requestRender() {} }, {}, {}, resolve);
+				component = factory(
+					{
+						requestRender() {
+							tuiCalls.requestRender++;
+						},
+						stop() {
+							tuiCalls.stop++;
+						},
+						start() {
+							tuiCalls.start++;
+						},
+					},
+					{},
+					{},
+					resolve,
+				);
 				return promise;
 			},
 		},
 	} as unknown as PiUIHost;
-	return { host, component: () => component! };
+	return { host, component: () => component!, tuiCalls };
 }
 
 // Encodings by terminal family: legacy control byte (xterm, GNOME, Windows Terminal, tmux, ...),
@@ -26,6 +51,7 @@ function hostWithComponent(): { host: PiUIHost; component: () => Component } {
 // xterm modifyOtherKeys CSI 27 ; mods ; code ~.
 const CTRL_S = ["\x13", "\x1b[115;5u", "\x1b[115;69u", "\x1b[115;5:1u", "\x1b[115:83;5u", "\x1b[27;5;115~"];
 const CTRL_N = ["\x0e", "\x1b[110;5u", "\x1b[110;69u", "\x1b[110;5:1u", "\x1b[110:78;5u", "\x1b[27;5;110~"];
+const CTRL_G = ["\x07", "\x1b[103;5u", "\x1b[103;69u", "\x1b[103;5:1u", "\x1b[103:71;5u", "\x1b[27;5;103~"];
 
 describe("PiUIAdapter keyboard input", () => {
 	it.each(CTRL_S)("multiSelect saves on Ctrl+S sent as %j", async (keys) => {
@@ -398,5 +424,136 @@ describe("PiUIAdapter custom editor undo behavior", () => {
 		const result = await ui.editor("Fallback title", "Fallback prefill");
 		expect(fallbackCalled).toBe(true);
 		expect(result).toBe("Fallback title:Fallback prefill");
+	});
+
+	it("renders bottom shortcut line containing Ctrl+G: External Editor", () => {
+		const { component } = openEditor("Edit prompt", "Initial text");
+		const text = component().render(80).join("\n");
+		expect(text).toContain("Ctrl+Q / Ctrl+S: Save · Esc: Cancel · Ctrl+Z: Undo · Ctrl+G: External Editor");
+	});
+
+	it.each(CTRL_G)("launches external editor on Ctrl+G sent as %j and updates content", async (keys) => {
+		let externalEditorCallCount = 0;
+		let receivedContent = "";
+		const tuiCalls = { stop: 0, start: 0, requestRender: 0 };
+
+		let comp: { handleInput?(data: string): void; render(width: number): string[] } | undefined;
+		const { promise, resolve } = Promise.withResolvers<string | undefined>();
+
+		comp = editorComponent(
+			{
+				title: "External editor test",
+				prefill: "Old content",
+				onDone: resolve,
+				async externalEditor(opts) {
+					externalEditorCallCount++;
+					receivedContent = opts.content;
+					return { status: "complete", content: "New content from notepad" };
+				},
+			},
+			{
+				requestRender() {
+					tuiCalls.requestRender++;
+				},
+				stop() {
+					tuiCalls.stop++;
+				},
+				start() {
+					tuiCalls.start++;
+				},
+			},
+			{},
+			{},
+		);
+
+		// Trigger external editor with Ctrl+G
+		comp.handleInput?.(keys);
+
+		// Await pending async microtasks
+		await new Promise((r) => setTimeout(r, 10));
+
+		expect(externalEditorCallCount).toBe(1);
+		expect(receivedContent).toBe("Old content");
+		expect(tuiCalls.stop).toBe(1);
+		expect(tuiCalls.start).toBe(1);
+
+		// Render should show updated content
+		const rendered = comp.render(80).join("\n");
+		expect(rendered).toContain("New content from notepad");
+
+		// Repeated Ctrl+Z must not clear the new content
+		for (let i = 0; i < 5; i++) {
+			comp.handleInput?.("\x1a");
+		}
+		expect(comp.render(80).join("\n")).toContain("New content from notepad");
+
+		// Save with Ctrl+S
+		comp.handleInput?.("\x13");
+		expect(await promise).toBe("New content from notepad");
+	});
+
+	it("ignores concurrent key input while external editor is active", async () => {
+		let externalEditorCalls = 0;
+		const { promise: editorPromise, resolve: resolveEditor } = Promise.withResolvers<void>();
+
+		const comp = editorComponent(
+			{
+				title: "Concurrency test",
+				prefill: "Original",
+				onDone() {},
+				async externalEditor() {
+					externalEditorCalls++;
+					await editorPromise;
+					return { status: "complete", content: "Updated after wait" };
+				},
+			},
+			{ requestRender() {} },
+			{},
+			{},
+		);
+
+		// Start external editor
+		comp.handleInput?.("\x07"); // Ctrl+G
+		expect(externalEditorCalls).toBe(1);
+
+		// Press Ctrl+G again while waiting — should be ignored
+		comp.handleInput?.("\x07");
+		// Type characters while waiting — should be ignored
+		comp.handleInput?.("x");
+		expect(externalEditorCalls).toBe(1);
+
+		// Complete external editor
+		resolveEditor();
+		await new Promise((r) => setTimeout(r, 10));
+
+		expect(comp.render(80).join("\n")).toContain("Updated after wait");
+	});
+
+	it("editInExternalEditor handles file update, strips BOM and normalizes CRLF", async () => {
+		const result = await editInExternalEditor({
+			content: "Initial text",
+			command: 'bun -e "const fs=require(\'fs\');fs.writeFileSync(process.argv[1],\'\\uFEFFupdated text\\r\\nsecond line\');"',
+		});
+
+		expect(result.status).toBe("complete");
+		expect(result.content).toBe("updated text\nsecond line");
+	});
+
+	it("editInExternalEditor returns failure when command exits non-zero", async () => {
+		const result = await editInExternalEditor({
+			content: "Initial text",
+			command: 'bun -e "process.exit(1)"',
+		});
+
+		expect(result.status).toBe("failed");
+	});
+
+	it("editInExternalEditor returns failure when command does not exist", async () => {
+		const result = await editInExternalEditor({
+			content: "Initial text",
+			command: "non_existent_editor_command_xyz123",
+		});
+
+		expect(result.status).toBe("failed");
 	});
 });

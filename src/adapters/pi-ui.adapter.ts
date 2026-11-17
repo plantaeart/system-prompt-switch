@@ -1,3 +1,7 @@
+import { spawn } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
 	Editor,
 	type EditorTheme,
@@ -18,6 +22,8 @@ import type {
 export interface ListTui {
 	height?: number;
 	requestRender(): void;
+	stop?(): void;
+	start?(): void;
 }
 export interface ListTheme {
 	fg?(color: string, text: string): string;
@@ -195,18 +201,87 @@ function listComponent(
 	};
 }
 
-interface EditorComponentOptions {
+export interface ExternalEditorOptions {
+	content: string;
+	command?: string;
+}
+
+export interface ExternalEditorResult {
+	status: "complete" | "failed";
+	content?: string;
+	message?: string;
+}
+
+export function getDefaultExternalEditorCommand(): string {
+	return (
+		process.env.VISUAL ||
+		process.env.EDITOR ||
+		(process.platform === "win32" ? "notepad" : "nano")
+	);
+}
+
+export async function editInExternalEditor(
+	options: ExternalEditorOptions,
+): Promise<ExternalEditorResult> {
+	const command = options.command || getDefaultExternalEditorCommand();
+	const directory = mkdtempSync(join(tmpdir(), "sps-editor-"));
+	const filePath = join(directory, "prompt.md");
+	try {
+		writeFileSync(filePath, options.content, "utf-8");
+		const [editor, ...editorArgs] = command.split(" ");
+		const exit = await new Promise<number | string | null>((resolve) => {
+			const child = spawn(editor, [...editorArgs, filePath], {
+				stdio: "inherit",
+				shell: process.platform === "win32",
+			});
+			child.on("error", () => resolve(null));
+			child.on("close", (code, signal) => resolve(code ?? signal));
+		});
+		if (exit === null) {
+			return {
+				status: "failed",
+				message: `Failed to launch external editor: ${command}`,
+			};
+		}
+		if (exit !== 0) {
+			return {
+				status: "failed",
+				message: `External editor exited with code ${exit}`,
+			};
+		}
+		let updated = readFileSync(filePath, "utf-8");
+		if (updated.charCodeAt(0) === 0xfeff) {
+			updated = updated.slice(1);
+		}
+		updated = updated.replace(/\r\n/g, "\n");
+		return {
+			status: "complete",
+			content: updated,
+		};
+	} finally {
+		try {
+			rmSync(directory, { recursive: true, force: true });
+		} catch {
+			// Cleanup is best effort.
+		}
+	}
+}
+
+export interface EditorComponentOptions {
 	title: string;
 	prefill?: string;
 	onDone(value: string | undefined): void;
+	externalEditor?(options: ExternalEditorOptions): Promise<ExternalEditorResult>;
 }
 
-function editorComponent(
+export function editorComponent(
 	opts: EditorComponentOptions,
 	tui: ListTui,
 	theme: ListTheme,
 	keybindings: ListKeybindings,
 ): ListComponent {
+	const runExternalEditor = opts.externalEditor ?? editInExternalEditor;
+	let isExternalEditorActive = false;
 	const safeTui = {
 		terminal: { rows: 24, columns: 80 },
 		...tui,
@@ -235,11 +310,16 @@ function editorComponent(
 			const lines = [
 				bold(theme, fg(theme, "accent", opts.title)),
 				...editor.render(width),
-				fg(theme, "dim", "Ctrl+Q / Ctrl+S: Save · Esc: Cancel · Ctrl+Z: Undo"),
+				fg(
+					theme,
+					"dim",
+					"Ctrl+Q / Ctrl+S: Save · Esc: Cancel · Ctrl+Z: Undo · Ctrl+G: External Editor",
+				),
 			];
 			return lines.map((line) => truncateToWidth(line, width, ""));
 		},
 		handleInput(data: string): void {
+			if (isExternalEditorActive) return;
 			if (isCtrlKey(data, "q") || isCtrlKey(data, "s")) {
 				opts.onDone(editor.getText());
 				return;
@@ -251,6 +331,24 @@ function editorComponent(
 			if (isCtrlKey(data, "z") || Boolean(keybindings.matches?.(data, "tui.editor.undo"))) {
 				(editor as unknown as { undo?(): void }).undo?.();
 				tui.requestRender();
+				return;
+			}
+			if (isCtrlKey(data, "g") || Boolean(keybindings.matches?.(data, "app.editor.external"))) {
+				isExternalEditorActive = true;
+				void (async () => {
+					tui.stop?.();
+					try {
+						const res = await runExternalEditor({ content: editor.getText() });
+						if (res.status === "complete" && res.content !== undefined) {
+							editor.setText(res.content);
+							(editor as unknown as { undoStack?: { clear(): void } }).undoStack?.clear();
+						}
+					} finally {
+						isExternalEditorActive = false;
+						tui.start?.();
+						tui.requestRender();
+					}
+				})();
 				return;
 			}
 			editor.handleInput(data);
