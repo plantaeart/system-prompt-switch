@@ -406,6 +406,29 @@ describe("PiUIAdapter custom editor undo behavior", () => {
 		expect(await promise).toBe("Some content");
 	});
 
+	it("inserts newline on Enter instead of submitting or exiting", async () => {
+		let isDone = false;
+		const { component, promise } = openEditor("Edit prompt", "FirstLine");
+		void promise.then(() => {
+			isDone = true;
+		});
+
+		// Press Enter (\r)
+		component().handleInput?.("\r");
+
+		// Await microtasks to confirm promise has not resolved
+		await new Promise((r) => setTimeout(r, 10));
+		expect(isDone).toBe(false);
+
+		// Type second line
+		component().handleInput?.("SecondLine");
+
+		// Now save with Ctrl+S
+		component().handleInput?.("\x13");
+		const result = await promise;
+		expect(result).toBe("FirstLine\nSecondLine");
+	});
+
 	it("falls back to host.ui.editor when host.ui.custom is not available", async () => {
 		let fallbackCalled = false;
 		const fallbackHost = {
@@ -435,7 +458,12 @@ describe("PiUIAdapter custom editor undo behavior", () => {
 	it.each(CTRL_G)("launches external editor on Ctrl+G sent as %j and updates content", async (keys) => {
 		let externalEditorCallCount = 0;
 		let receivedContent = "";
-		const tuiCalls = { stop: 0, start: 0, requestRender: 0 };
+		const tuiCalls = {
+			stop: 0,
+			start: 0,
+			requestRender: 0,
+			requestRenderArgs: [] as (boolean | undefined)[],
+		};
 
 		let comp: { handleInput?(data: string): void; render(width: number): string[] } | undefined;
 		const { promise, resolve } = Promise.withResolvers<string | undefined>();
@@ -452,8 +480,9 @@ describe("PiUIAdapter custom editor undo behavior", () => {
 				},
 			},
 			{
-				requestRender() {
+				requestRender(force?: boolean) {
 					tuiCalls.requestRender++;
+					tuiCalls.requestRenderArgs.push(force);
 				},
 				stop() {
 					tuiCalls.stop++;
@@ -476,6 +505,7 @@ describe("PiUIAdapter custom editor undo behavior", () => {
 		expect(receivedContent).toBe("Old content");
 		expect(tuiCalls.stop).toBe(1);
 		expect(tuiCalls.start).toBe(1);
+		expect(tuiCalls.requestRenderArgs).toContain(true);
 
 		// Render should show updated content
 		const rendered = comp.render(80).join("\n");

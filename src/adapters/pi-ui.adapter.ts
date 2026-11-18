@@ -21,8 +21,8 @@ import type {
 /** The slice of the host's TUI objects the pickers use. */
 export interface ListTui {
 	height?: number;
-	requestRender(): void;
-	stop?(): void;
+	requestRender(force?: boolean): void;
+	stop?(options?: { preserveScreen?: boolean }): void;
 	start?(): void;
 }
 export interface ListTheme {
@@ -303,7 +303,7 @@ export function editorComponent(
 		// preventing accidental deletion/clearing of prompt files when fixing typos.
 		(editor as unknown as { undoStack?: { clear(): void } }).undoStack?.clear();
 	}
-	editor.onSubmit = (text: string) => opts.onDone(text);
+	(editor as unknown as { disableSubmit?: boolean }).disableSubmit = true;
 
 	return {
 		render(width: number): string[] {
@@ -333,6 +333,22 @@ export function editorComponent(
 				tui.requestRender();
 				return;
 			}
+			if (
+				isEnter(data, keybindings) ||
+				Boolean(keybindings.matches?.(data, "tui.input.submit"))
+			) {
+				const ed = editor as unknown as {
+					addNewLine?(): void;
+					insertTextAtCursor?(t: string): void;
+				};
+				if (typeof ed.addNewLine === "function") {
+					ed.addNewLine();
+				} else if (typeof ed.insertTextAtCursor === "function") {
+					ed.insertTextAtCursor("\n");
+				}
+				tui.requestRender();
+				return;
+			}
 			if (isCtrlKey(data, "g") || Boolean(keybindings.matches?.(data, "app.editor.external"))) {
 				isExternalEditorActive = true;
 				void (async () => {
@@ -346,7 +362,7 @@ export function editorComponent(
 					} finally {
 						isExternalEditorActive = false;
 						tui.start?.();
-						tui.requestRender();
+						tui.requestRender(true);
 					}
 				})();
 				return;
