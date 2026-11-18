@@ -4,6 +4,7 @@ import {
 	editInExternalEditor,
 	PiUIAdapter,
 	type PiUIHost,
+	splitCommand,
 } from "../../src/adapters/pi-ui.adapter";
 
 type Component = { handleInput?(data: string): void; render(width: number): string[] };
@@ -585,5 +586,70 @@ describe("PiUIAdapter custom editor undo behavior", () => {
 		});
 
 		expect(result.status).toBe("failed");
+	});
+});
+
+describe("splitCommand", () => {
+	it("parses single command without arguments", () => {
+		expect(splitCommand("nano")).toEqual(["nano"]);
+	});
+
+	it("splits space-delimited command and arguments", () => {
+		expect(splitCommand("code --wait")).toEqual(["code", "--wait"]);
+	});
+
+	it("collapses multiple spaces, tabs, and trims surrounding whitespace", () => {
+		expect(splitCommand("  code \t  --wait   ")).toEqual(["code", "--wait"]);
+	});
+
+	it("preserves spaces inside double quotes and strips the quotes", () => {
+		expect(splitCommand('bun -e "console.log(1 2 3)"')).toEqual([
+			"bun",
+			"-e",
+			"console.log(1 2 3)",
+		]);
+	});
+
+	it("preserves spaces inside single quotes and strips the quotes", () => {
+		expect(splitCommand("bun -e 'process.exit(1)'")).toEqual([
+			"bun",
+			"-e",
+			"process.exit(1)",
+		]);
+	});
+
+	it("handles nested quotes properly", () => {
+		expect(splitCommand('bun -e "const a = \'hello world\';"')).toEqual([
+			"bun",
+			"-e",
+			"const a = 'hello world';",
+		]);
+		expect(splitCommand("bun -e 'const a = \"hello world\";'")).toEqual([
+			"bun",
+			"-e",
+			'const a = "hello world";',
+		]);
+	});
+
+	it("handles escaped quotes inside quotes", () => {
+		expect(splitCommand('echo "hello \\"world\\""')).toEqual([
+			"echo",
+			'hello "world"',
+		]);
+	});
+
+	it("preserves Windows style paths with spaces and backslashes inside quotes", () => {
+		expect(
+			splitCommand('"C:\\Program Files\\Notepad++\\notepad++.exe" -multiInst'),
+		).toEqual(["C:\\Program Files\\Notepad++\\notepad++.exe", "-multiInst"]);
+	});
+
+	it("returns empty array for empty or whitespace-only strings", () => {
+		expect(splitCommand("")).toEqual([]);
+		expect(splitCommand("   \t  ")).toEqual([]);
+	});
+
+	it("preserves empty quoted tokens", () => {
+		expect(splitCommand('code ""')).toEqual(["code", ""]);
 	});
 });
