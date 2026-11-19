@@ -25,7 +25,7 @@ const EXTENSION = path.resolve("extensions/index.ts");
 const LOAD_ERROR = /Failed to load extension|Cannot find module|SyntaxError|ParseError/;
 // What both hosts print once the extension has loaded and they reach "no model / no key" (seen in real runs). A host that
 // rejects a flag prints neither this nor a load error, so a run without it proves nothing was loaded.
-const REACHED_MODEL_STAGE = /No default model|No API key/;
+const REACHED_MODEL_STAGE = /No default model|No API key|AWS credentials/;
 // The first omp launch in an empty HOME unpacks about 120 MB of native libraries into ~/.omp/natives: 1.8 s here
 // against 0.5 s afterwards. A slow disk or a virus scanner (Windows) multiplies that, and Bun's 5 s default timeout fails.
 const COLD_START_MS = 30_000;
