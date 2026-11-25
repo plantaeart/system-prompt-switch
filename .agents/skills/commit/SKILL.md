@@ -61,17 +61,20 @@ bash $S info "<message>"      # message, version -> new version (tag vX.Y.Z) or 
 **Branch + PR**, in this order (the branch exists before the commit, or the commit lands on the base branch):
 
 1. **Q2. Branch name.** Suggest `bash $S suggest-branch "<message>"` (`release/vX.Y.Z` when the version moved, else `<type>/<short-slug>`); the user can type another (the script refuses an invalid or existing name). Then `bash $S branch <name> "<message>"` prints `git switch -c … && git add -A && git commit -m …` (no tag yet). **Q: run it or copy it?**
-2. **Q3. PR details.** Write the title (= the commit message) and the body, then show both in full with the base branch and draft or ready. Body: short, two sections (what the `release` skill's `open-pr.sh` also writes):
+2. **Q3. PR details.** Write the title (= the commit message) and the body, then show both in full with the base branch and draft or ready. Body: short, two sections, `WHAT` and `HOW`:
 
    ```markdown
-   ## Why
+   ## WHAT
 
-   One or two sentences: the feature or bug, in plain words.
+   The problem, the feature or the refactor, in one or two plain sentences.
 
-   ## What was done
+   ## HOW
 
-   - 3 to 6 concrete bullets (what the user sees, not file lists).
+   - One bullet per element changed, in the order a reader would follow it.
+   - Readable, not too technical: say what each piece now does; name a file or function only when it helps.
    ```
+
+   Anything a reviewer must know before merging (an expected red check, a follow-up PR) goes as a last HOW bullet.
 
    Write the body to a temp file, then `bash $S pr <branch> "<title>" <body-file> [--draft]` prints `git push -u origin … && gh pr create …`. **Q4. Push and open the PR: run it or copy it?** (this is the only step that pushes).
 
