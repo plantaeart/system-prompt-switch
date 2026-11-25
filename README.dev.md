@@ -47,6 +47,7 @@ tests/
   skills/                 # Project-local omp skills (not shipped to npm; see `.npmignore`)
     get-context/
   skills/bump-version/    # `bun pm version` + `git tag v<ver>` (no commit)
+  skills/screenshots/     # README screenshots + demo GIFs of a real omp TUI -> assets/imgs, assets/gifs (`shots.sh`, `gifs.sh`, omp only)
 ```
 
 The domain never imports from `adapters/` or `extensions/`; tests inject mock implementations through the ports.
