@@ -5,6 +5,7 @@
     "": {
       "name": "system-prompt-switch",
       "devDependencies": {
+        "@earendil-works/pi-tui": "*",
         "@types/node": "^22.20.4",
         "bun-types": "^1.4.2",
         "oxlint": "^1.85.0",
@@ -14,6 +15,9 @@
         "@earendil-works/pi-coding-agent": "*",
         "@earendil-works/pi-tui": "*",
       },
+      "optionalPeers": [
+        "@earendil-works/pi-tui",
+      ],
     },
   },
   "packages": {

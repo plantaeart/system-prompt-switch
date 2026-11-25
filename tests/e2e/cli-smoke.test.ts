@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { sandboxEnv } from "../helpers/sandbox-env";
 
 /**
  * Loads the extension through a real host CLI.
@@ -16,16 +17,18 @@ import * as path from "node:path";
  * credential variable removed: no user plugin, setting or login is touched and
  * no model is ever called.
  */
+// omp 19 answers from a built-in keyless model when none is configured, so it is pointed at a model that does not
+// exist: it stops right after the extensions load, before any request.
+// Each host loads its own entry: OMP 19 rejects the pi-tui import that Pi's editor needs (package.json omp / pi manifests).
 const HOSTS = [
-	{ name: "pi", bin: "pi" },
-	{ name: "omp", bin: "omp" },
+	{ name: "pi", bin: "pi", entry: "extensions/pi.ts", args: [] },
+	{ name: "omp", bin: "omp", entry: "extensions/index.ts", args: ["--model", "nope/none"] },
 ] as const;
 
-const EXTENSION = path.resolve("extensions/index.ts");
 const LOAD_ERROR = /Failed to load extension|Cannot find module|SyntaxError|ParseError/;
 // What both hosts print once the extension has loaded and they reach "no model / no key" (seen in real runs). A host that
 // rejects a flag prints neither this nor a load error, so a run without it proves nothing was loaded.
-const REACHED_MODEL_STAGE = /No default model|No API key|AWS credentials/;
+const REACHED_MODEL_STAGE = /No default model|No API key|AWS credentials|Model "nope\/none" not found/;
 // The first omp launch in an empty HOME unpacks about 120 MB of native libraries into ~/.omp/natives: 1.8 s here
 // against 0.5 s afterwards. A slow disk or a virus scanner (Windows) multiplies that, and Bun's 5 s default timeout fails.
 const COLD_START_MS = 30_000;
@@ -46,21 +49,14 @@ afterAll(() => {
 	if (home) fs.rmSync(home, { recursive: true, force: true });
 });
 
-function sandboxEnv(): Record<string, string> {
-	const env: Record<string, string> = {};
-	for (const [key, value] of Object.entries(process.env)) {
-		if (value !== undefined && !/API_KEY|TOKEN|SECRET|AUTH|^(PI|OMP)_/i.test(key)) env[key] = value;
-	}
-	return { ...env, HOME: home, USERPROFILE: home };
-}
 
-async function runHost(bin: string, extension: string): Promise<{ stderr: string; ms: number }> {
+async function runHost(bin: string, extension: string, args: readonly string[]): Promise<{ stderr: string; ms: number }> {
 	const started = performance.now();
-	const proc = Bun.spawn([bin, "--no-session", "-e", extension, "-p", "hi"], {
+	const proc = Bun.spawn([bin, "--no-session", "-e", extension, ...args, "-p", "hi"], {
 		cwd: home,
 		stdout: "pipe",
 		stderr: "pipe",
-		env: sandboxEnv(),
+		env: sandboxEnv(home),
 	});
 	const [stderr] = await Promise.all([new Response(proc.stderr).text(), new Response(proc.stdout).text()]);
 	await proc.exited;
@@ -77,7 +73,7 @@ describe("CLI Smoke Test", () => {
 				return;
 			}
 
-			const { stderr, ms } = await runHost(host.bin, EXTENSION);
+			const { stderr, ms } = await runHost(host.bin, path.resolve(host.entry), host.args);
 
 			console.log(`[smoke] ${host.name} started in ${ms} ms`);
 			expect(stderr).not.toMatch(LOAD_ERROR);
@@ -91,7 +87,7 @@ describe("CLI Smoke Test", () => {
 				return;
 			}
 
-			const { stderr } = await runHost(host.bin, brokenExtension);
+			const { stderr } = await runHost(host.bin, brokenExtension, host.args);
 
 			expect(stderr).toMatch(LOAD_ERROR);
 		}, COLD_START_MS);
@@ -106,7 +102,7 @@ describe("smoke test sandbox", () => {
 		process.env.ANTHROPIC_API_KEY = "sk-real";
 		process.env.OMPCODE = "1";
 		try {
-			const env = sandboxEnv();
+			const env = sandboxEnv(home);
 			expect(env.PI_CODING_AGENT_DIR).toBeUndefined();
 			expect(env.OMP_WORKTREE_DIR).toBeUndefined();
 			expect(env.ANTHROPIC_API_KEY).toBeUndefined();
