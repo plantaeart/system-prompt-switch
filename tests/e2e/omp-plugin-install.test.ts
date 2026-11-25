@@ -103,7 +103,7 @@ describe("omp plugin install", () => {
 		const home = path.join(tempDir, "home");
 		fs.mkdirSync(path.join(home, ".omp", "agent"), { recursive: true });
 		// Marks first-run setup done, otherwise the host opens its sign-in wizard.
-		fs.writeFileSync(path.join(home, ".omp", "agent", "config.yml"), "setupVersion: 2\n");
+		fs.writeFileSync(path.join(home, ".omp", "agent", "config.yml"), "setupVersion: 3\n");
 
 		const proc = Bun.spawn(["omp", "plugin", "install", `${PACKAGE}@${VERSION}`], {
 			cwd: tempDir,

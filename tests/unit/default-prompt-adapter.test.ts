@@ -25,8 +25,17 @@ describe("DefaultPromptAdapter", () => {
 		const a = adapterFor("/proj/a");
 		expect(await a.get()).toBeUndefined();
 
-		await a.set({ name: "x.md", scope: PromptScope.Local });
-		expect(await adapterFor("/proj/a").get()).toEqual({ name: "x.md", scope: PromptScope.Local });
+		await a.set([{ name: "x.md", scope: PromptScope.Local }]);
+		expect(await adapterFor("/proj/a").get()).toEqual([{ name: "x.md", scope: PromptScope.Local }]);
+
+		await a.set([
+			{ name: "x.md", scope: PromptScope.Local },
+			{ name: "y.md", scope: PromptScope.GlobalPi },
+		]);
+		expect(await adapterFor("/proj/a").get()).toEqual([
+			{ name: "x.md", scope: PromptScope.Local },
+			{ name: "y.md", scope: PromptScope.GlobalPi },
+		]);
 
 		await a.set(null);
 		expect(await adapterFor("/proj/a").get()).toBeNull();

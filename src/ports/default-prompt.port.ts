@@ -5,9 +5,9 @@ import type { ActivePromptRef } from "../core/types/active-prompt-ref.type";
  * `undefined` = never chosen (show the picker), `null` = chose (None).
  */
 export interface DefaultPromptPort {
-	get(): Promise<ActivePromptRef | null | undefined>;
+	get(): Promise<ActivePromptRef[] | null | undefined>;
 	/** `undefined` forgets the default. */
-	set(ref: ActivePromptRef | null | undefined): Promise<void>;
+	set(refs: ActivePromptRef[] | ActivePromptRef | null | undefined): Promise<void>;
 	/** Scopes the default to a project; called on every host event like StoragePort.setCwd. */
 	setCwd(cwd: string): void;
 }
