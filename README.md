@@ -103,23 +103,23 @@ Demo GIFs:
 
 **1. Select / Create system prompt when new session**
 
-![Select or create a system prompt for a new session](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/gifs/select-create-sys-prompt.gif)
+![Select or create a system prompt for a new session](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/gifs/select-create-sys-prompt.gif?v=0.14.2)
 
 **2. Update system prompt (local or global)**
 
-![Update an existing system prompt](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/gifs/update-created-sys-prompt.gif)
+![Update an existing system prompt](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/gifs/update-created-sys-prompt.gif?v=0.14.2)
 
 **3. Inject one or several system prompts for next message**
 
-![Cumulative inject for the next message](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/gifs/inject-prompts.gif)
+![Cumulative inject for the next message](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/gifs/inject-prompts.gif?v=0.14.2)
 
 **4. Get information or logs**
 
-![Get current session prompt info](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/gifs/get-info.gif)
+![Get current session prompt info](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/gifs/get-info.gif?v=0.14.2)
 
 **5. Delete a system prompt**
 
-![Delete a system prompt with confirmation](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/gifs/delete-sys-prompt.gif)
+![Delete a system prompt with confirmation](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/gifs/delete-sys-prompt.gif?v=0.14.2)
 
 ---
 
