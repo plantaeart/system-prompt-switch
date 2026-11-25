@@ -58,7 +58,7 @@ The script greps these `name@version` strings; it does not keep its own copy. Ch
 4. **Smoke-test by hand.** The suite spawns both CLIs but only asserts they load without crashing. Confirm the commands autocomplete and the banner shows the right scope:
    ```bash
    omp -e ./extensions/index.ts
-   pi  -e ./extensions/index.ts
+   pi  -e ./extensions/pi.ts
    ```
    Type `/sps` and check the list. Expect the banner `Active Prompt: [omp] …` under omp and `[pi] …` under pi.
 5. **Update the pins** in `flake.nix` (`hostCLIs`) to the new versions.

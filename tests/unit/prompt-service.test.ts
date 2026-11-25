@@ -363,25 +363,6 @@ describe("PromptService", () => {
 		expect(updated.file).toBe(FixturePrompt.SecurityAuditor);
 	});
 
-	it("shows the editor-shortcut banner widget while creating a prompt, then restores status", async () => {
-		ui.inputValue = FixturePrompt.Auditor;
-		ui.editorValue = "Audit body.";
-
-		const beforeHistoryLength = ui.widgetHistory.length;
-		await service.createNewPrompt("sess-1");
-
-		const bannerWidget = ui.widgetHistory
-			.slice(beforeHistoryLength)
-			.find((w) => w?.some((line) => line.includes("Editor shortcuts")));
-
-		expect(bannerWidget).toBeDefined();
-		expect(bannerWidget?.some((line) => line.includes("Ctrl+Q"))).toBe(true);
-		expect(bannerWidget?.some((line) => line.includes("Esc"))).toBe(true);
-
-		const finalWidget = ui.widgetHistory[ui.widgetHistory.length - 1];
-		expect(finalWidget?.[0]).toContain("Active Prompt");
-	});
-
 	it("edits an existing prompt after selecting it from the picker", async () => {
 		storage.files.set(FixturePrompt.Dev, "Original content");
 		await sessionState.setSessionConfig("sess-1", {
@@ -407,34 +388,36 @@ describe("PromptService", () => {
 		expect(ui.selectCalls).toBe(0);
 	});
 
-	it("shows the editor-shortcut banner widget while editing a prompt, then restores status", async () => {
+	it("keeps the file when the editor comes back empty and the user declines to save it", async () => {
 		storage.files.set(FixturePrompt.Dev, "Original content");
-		await sessionState.setSessionConfig("sess-1", {
-			file: FixturePrompt.Dev,
-			mode: "append",
-			enabled: true,
-		});
-		ui.selectChoices = [`[${HOST_LABEL}] dev.md`];
-		ui.editorValue = "Updated content";
+		ui.editorValue = "  \n";
+		ui.confirmValue = false;
 
-		const beforeHistoryLength = ui.widgetHistory.length;
-		await service.editPrompt("sess-1");
+		const success = await service.editPrompt("sess-1", FixturePrompt.Dev);
 
-		const bannerWidget = ui.widgetHistory
-			.slice(beforeHistoryLength)
-			.find((w) => w?.some((line) => line.includes("Editor shortcuts")));
+		expect(success).toBe(false);
+		expect(storage.files.get(FixturePrompt.Dev)).toBe("Original content");
+	});
 
-		expect(bannerWidget).toBeDefined();
-		expect(bannerWidget?.some((line) => line.includes("Ctrl+Q"))).toBe(true);
-		expect(bannerWidget?.some((line) => line.includes("Esc"))).toBe(true);
+	it("saves an emptied prompt once the user confirms", async () => {
+		storage.files.set(FixturePrompt.Dev, "Original content");
+		ui.editorValue = "";
+		ui.confirmValue = true;
 
-		// ponytail: regression guard — every banner line must be the same
-		// character width so the box-drawing corners align in the terminal.
-		const widths = (bannerWidget ?? []).map((line) => [...line].length);
-		expect(new Set(widths).size).toBe(1);
+		const success = await service.editPrompt("sess-1", FixturePrompt.Dev);
 
-		const finalWidget = ui.widgetHistory[ui.widgetHistory.length - 1];
-		expect(finalWidget?.[0]).toContain("Active Prompt");
+		expect(success).toBe(true);
+		expect(storage.files.get(FixturePrompt.Dev)).toBe("");
+	});
+
+	it("does not ask when an already empty prompt stays empty", async () => {
+		storage.files.set(FixturePrompt.Dev, "");
+		ui.editorValue = "";
+		ui.confirmValue = false;
+
+		const success = await service.editPrompt("sess-1", FixturePrompt.Dev);
+
+		expect(success).toBe(true);
 	});
 
 	it("deletes a prompt and resets current session if it was active", async () => {

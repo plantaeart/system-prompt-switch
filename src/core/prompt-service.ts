@@ -43,18 +43,6 @@ export const SCOPE_DESTINATIONS: ReadonlyArray<{
 /** Short labels shown in the modals. */
 export { SCOPE_BY_LABEL, formatScope, resolveScope } from "./prompt-scope-label";
 
-// ponytail: the host's editor footer advertises Ctrl+Enter submit + Ctrl+G external editor,
-// which we cannot suppress from extension code. Show our own banner above the editor instead.
-// ponytail: emojis count as 2 cells in terminals but the box-drawing corners count as 1,
-// breaking right-edge alignment; we use plain text markers and equalize char counts so
-// every line is exactly 37 chars wide (╭─ X ─╮ style; 4 lines, same width).
-const EDITOR_SHORTCUT_BANNER: string[] = [
-    "╭─ Editor shortcuts ────────────────╮",
-	"│ Submit: Ctrl+Q                    │",
-	"│ Cancel: Esc                       │",
-	"╰─ Ctrl+Enter / Ctrl+G ignored ─────╯",
-];
-
 // ponytail: the agent-context chunk is loaded from a markdown template so it can
 // be edited without touching code. Path is resolved relative to the source file
 // so the bundle works whether the package is run from source, from a tgz, or
@@ -174,24 +162,6 @@ export class PromptService {
 			`╭─ 🎯 Active Prompt: ${label} (${config.mode} mode) ─╮`,
 		]);
 	}
-
-	private async runEditorWithHint(
-		title: string,
-		prefill: string,
-		sessionId?: string,
-	): Promise<string | undefined> {
-		this.ui.setWidget(EDITOR_SHORTCUT_BANNER);
-		try {
-			return await this.ui.editor(title, prefill);
-		} finally {
-			if (sessionId) {
-				await this.updateStatus(sessionId);
-			} else {
-				this.ui.setWidget(undefined);
-			}
-		}
-	}
-
 
 	private parseOption(option: string): { name: string; scope?: PromptScope } {
 		const clean = option.replace(/\s+✓$/, "").trim();
@@ -665,12 +635,7 @@ export class PromptService {
 
 		const initialStub = `# ${cleanName.replace(/\.md$/, "")}\n\n`;
 
-		// Open native editor directly with clean title
-		const updated = await this.runEditorWithHint(
-			`Create: [${targetScope}] ${cleanName}`,
-			initialStub,
-			sessionId,
-		);
+		const updated = await this.ui.editor(`Create: [${targetScope}] ${cleanName}`, initialStub);
 		if (updated === undefined || updated.trim().length === 0) {
 			this.ui.notify("Prompt creation cancelled (empty or cancelled).", "info");
 			return null;
@@ -878,15 +843,21 @@ export class PromptService {
 			return false;
 		}
 
-		// Open native editor directly with clean title
-		const updated = await this.runEditorWithHint(
-			`Edit: ${targetFile}`,
-			content,
-			sessionId,
-		);
+		const updated = await this.ui.editor(`Edit: ${targetFile}`, content);
 		if (updated === undefined) {
 			this.ui.notify("Edit cancelled.", "info");
 			return false;
+		}
+		// Repeated undo in the pi editor can empty the box; never overwrite a prompt with nothing unasked.
+		if (updated.trim().length === 0 && content.trim().length > 0) {
+			const saveEmpty = await this.ui.confirm(
+				"Save empty prompt?",
+				`The editor is empty. Saving replaces the content of ${targetFile} with nothing.`,
+			);
+			if (!saveEmpty) {
+				this.ui.notify("Edit cancelled, the file is unchanged.", "info");
+				return false;
+			}
 		}
 
 		const editScope = resolvedTargetScope;

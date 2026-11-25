@@ -45,7 +45,7 @@ That's it. The extension registers on next session start. Works in both Pi and O
 ### Quick start
 
 1. Start Pi or OMP. The startup modal opens.
-2. Run `/sps-new`, name a prompt, write it, **Ctrl+Q** to save.
+2. Run `/sps-new`, name a prompt, write it, then save it with **Ctrl+Q**.
 3. Run `/sps-select` to switch prompts, or `/sps-inject` to stack several for the next message.
 
 ---
@@ -56,7 +56,7 @@ Startup session modal - pick a prompt or create one:
 
 ![Startup session modal](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/img2.png)
 
-Editor banner while creating a new prompt (Ctrl+Q submit, Esc cancel):
+The editor while creating a new prompt (the key hints are drawn under the text; Esc cancels):
 
 ![Editor area for create/edit system prompts](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/img3.png)
 
@@ -175,7 +175,7 @@ The startup modal can also be turned off with the `promptOnStartup` setting, see
 
 ## Editor shortcut note
 
-When `/sps-new` or `/sps-edit` opens the built-in editor, an above-editor banner shows the **real** shortcuts: **Ctrl+Q** to submit, **Esc** to cancel. The host's footer also advertises `Ctrl+Enter submit` and `Ctrl+G external editor` - these are **not** wired by this extension; ignore them.
+`/sps-new` and `/sps-edit` open the same editor on Pi and OMP: **Ctrl+Q** or **Ctrl+S** saves, **Esc** cancels, **Enter** adds a line, **Ctrl+Z** undoes (never past the text the editor opened with) and **Ctrl+G** opens `$VISUAL` / `$EDITOR`. The key hints are drawn under the editor. Saving an emptied prompt asks for confirmation first.
 
 ---
 

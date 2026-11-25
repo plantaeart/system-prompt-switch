@@ -10,8 +10,9 @@ Mocked tests prove logic; this proves the extension works inside the real host. 
 ## Run
 
 ```bash
-bash .agents/skills/real-session-test/scripts/real-session.sh                 # all scenarios
+bash .agents/skills/real-session-test/scripts/real-session.sh                 # all scenarios on omp
 bash .agents/skills/real-session-test/scripts/real-session.sh s_none_is_default  # one
+SPS_HOST=pi bash .agents/skills/real-session-test/scripts/real-session.sh        # the same scenarios on Pi (entry extensions/pi.ts)
 ```
 
 Needs `tmux` and `omp` on PATH. No model, login or network is required: the TUI starts with "No default model", and `session_start`, the modal, slash commands and the banner all work.
@@ -30,14 +31,17 @@ Add a function `s_<name>` to `scripts/real-session.sh` and list it in `SCENARIOS
 | Helper | Does |
 |---|---|
 | `reset_sandbox` | Wipes and recreates the sandbox |
-| `launch <cwd>` | Starts omp in `<cwd>`, waits for the modal or the banner |
+| `launch <cwd>` | Starts the host in `<cwd>` (PI_*/OMP_* removed from the environment; `VISUAL`/`EDITOR` set to `$S/ed.sh`, which appends `EXT-EDITED`), waits for the modal or the banner |
 | `tick <n>` | In the startup modal or `/sps-select` list: `n` Downs from the top, then Space. Rows: Done=0, None=1, `alpha`=2, `beta`=3, then three "Create new" rows. Call it repeatedly to tick several rows (`tick 2; tmux send-keys -t $T Down; tmux send-keys -t $T Space`) |
 | `save` | Ctrl+S. With nothing ticked it saves None |
 | `pick <n>` | `tick <n>` then `save` |
 | `slash "<cmd>"` | Types the command and Enter |
 | `check <desc> present\|absent <regex>` | Retries up to 5 s; dumps the screen on failure |
+| `open_editor` | `/sps-edit`, Enter on `alpha`, so the editor is open |
+| `kitty_esc` / `kitty_esc_caps` | Send Esc as the Kitty keyboard protocol does (`CSI 27 u`, and `CSI 27;65 u` with caps lock) |
+| `file_has <desc> <file> <regex>` | Asserts on a prompt file on disk |
 
-Current scenarios: `s_default_applies`, `s_none_is_default`, `s_dismiss_no_default`, `s_missing_file`, `s_multi_default` (several ticked prompts, `/sps-select a b`, `none`, unknown name), `s_inject_one_turn` (`/sps-inject` never becomes the project default), `s_rename_active` (Ctrl+N in `/sps-edit` keeps banner and default in sync).
+Current scenarios (all run on both hosts): `s_default_applies`, `s_none_is_default`, `s_dismiss_no_default`, `s_missing_file`, `s_multi_default` (several ticked prompts, `/sps-select a b`, `none`, unknown name), `s_inject_one_turn` (`/sps-inject` never becomes the project default), `s_rename_active` (Ctrl+N in `/sps-edit` keeps banner and default in sync), `s_preview_keys` (Tab preview, Esc leaves it, plain and Kitty-encoded), `s_editor_edit_undo_save` (mid-word typing, undo never passes the prefill, Ctrl+S writes the file), `s_editor_escape_cancels` (Esc closes the picker and the editor as a plain byte, Kitty CSI-u and Kitty with caps lock; file unchanged), `s_editor_external` (Ctrl+G through `$VISUAL`), `s_editor_empty_save_guard` (emptying a prompt asks before saving).
 
 ## Trying a branch by hand: `manual-session.sh`
 

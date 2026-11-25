@@ -1,22 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import {
-	editorComponent,
-	editInExternalEditor,
-	PiUIAdapter,
-	type PiUIHost,
-	splitCommand,
-} from "../../src/adapters/pi-ui.adapter";
+import { PiUIAdapter, type PiUIHost } from "../../src/adapters/pi-ui.adapter";
+import { settle } from "../helpers/settle";
 
 type Component = { handleInput?(data: string): void; render(width: number): string[] };
 
 /** Host whose ui.custom hands the component back so a test can type into it. */
-function hostWithComponent(): {
-	host: PiUIHost;
-	component: () => Component;
-	tuiCalls: { stop: number; start: number; requestRender: number };
-} {
+function hostWithComponent(tui: Record<string, unknown> = {}): { host: PiUIHost; component: () => Component } {
 	let component: Component | undefined;
-	const tuiCalls = { stop: 0, start: 0, requestRender: 0 };
 	const host = {
 		hasUI: true,
 		ui: {
@@ -24,27 +14,12 @@ function hostWithComponent(): {
 				factory: (tui: unknown, theme: unknown, kb: unknown, done: (v: T) => void) => Component,
 			) => {
 				const { promise, resolve } = Promise.withResolvers<T>();
-				component = factory(
-					{
-						requestRender() {
-							tuiCalls.requestRender++;
-						},
-						stop() {
-							tuiCalls.stop++;
-						},
-						start() {
-							tuiCalls.start++;
-						},
-					},
-					{},
-					{},
-					resolve,
-				);
+				component = factory({ requestRender() {}, ...tui }, {}, {}, resolve);
 				return promise;
 			},
 		},
 	} as unknown as PiUIHost;
-	return { host, component: () => component!, tuiCalls };
+	return { host, component: () => component! };
 }
 
 // Encodings by terminal family: legacy control byte (xterm, GNOME, Windows Terminal, tmux, ...),
@@ -52,7 +27,10 @@ function hostWithComponent(): {
 // xterm modifyOtherKeys CSI 27 ; mods ; code ~.
 const CTRL_S = ["\x13", "\x1b[115;5u", "\x1b[115;69u", "\x1b[115;5:1u", "\x1b[115:83;5u", "\x1b[27;5;115~"];
 const CTRL_N = ["\x0e", "\x1b[110;5u", "\x1b[110;69u", "\x1b[110;5:1u", "\x1b[110:78;5u", "\x1b[27;5;110~"];
-const CTRL_G = ["\x07", "\x1b[103;5u", "\x1b[103;69u", "\x1b[103;5:1u", "\x1b[103:71;5u", "\x1b[27;5;103~"];
+// Esc as a plain byte, Kitty keyboard protocol (what Kitty, WezTerm, Ghostty, foot send; caps lock +64, num lock +128), and modifyOtherKeys.
+// Tab as a plain byte, Kitty protocol (press, repeat, caps lock) and modifyOtherKeys.
+const TAB = ["\t", "\x1b[9u", "\x1b[9;1u", "\x1b[9;1:1u", "\x1b[9;65u", "\x1b[27;1;9~"];
+const ESCAPE = ["\x1b", "\x1b[27u", "\x1b[27;1u", "\x1b[27;1:1u", "\x1b[27;1:2u", "\x1b[27;65u", "\x1b[27;129u", "\x1b[27;1;27~"];
 
 describe("PiUIAdapter keyboard input", () => {
 	it.each(CTRL_S)("multiSelect saves on Ctrl+S sent as %j", async (keys) => {
@@ -103,6 +81,18 @@ describe("PiUIAdapter list rendering and navigation", () => {
 		return { ui, component };
 	}
 
+	it("sizes the list from tui.size() when the host has no tui.height (omp)", () => {
+		const many = Array.from({ length: 60 }, (_, i) => ({ id: `r${i}`, label: `row${i}`, selected: false }));
+		const { host, component } = hostWithComponent({ size: () => ({ width: 100, height: 10 }) });
+		const ui = new PiUIAdapter();
+		ui.setHost(host);
+		void ui.multiSelect("t", many);
+
+		const shown = component().render(100).filter((l) => /row\d+$/.test(l));
+
+		expect(shown.length).toBe(5); // a 10-row terminal; the 24-row fallback would show 14
+	});
+
 	it("draws title, cursor row and key hint, cut to the terminal width", async () => {
 		const { ui, component } = open();
 		void ui.multiSelect("Pick prompts", items);
@@ -143,13 +133,55 @@ describe("PiUIAdapter list rendering and navigation", () => {
 		expect(await result).toEqual({ selectedIds: ["[local] a.md"] });
 	});
 
-	it("Escape closes the list as cancelled", async () => {
+	it.each(ESCAPE)("Escape sent as %j closes the list as cancelled", async (key) => {
 		const { ui, component } = open();
 		const result = ui.multiSelect("t", items);
 
-		component().handleInput?.("\x1b");
+		component().handleInput?.(key);
 
 		expect(await result).toEqual({ cancelled: true, selectedIds: [] });
+	});
+
+	it.each(TAB)("Tab sent as %j opens the preview", (key) => {
+		const { ui, component } = open();
+		void ui.multiSelect("Pick", [{ id: "x", label: "[local] x.md", selected: false, content: "body" }]);
+
+		component().handleInput?.(key);
+
+		expect(component().render(80)[0]).toContain("Preview");
+	});
+
+	it.each(["\x1b[9;2u", "\x1b[27;2;9~", "\x1b[Z", "\x1b[9;1:3u"])("%j (Shift+Tab, or a Tab release) does not open the preview", (key) => {
+		const { ui, component } = open();
+		void ui.multiSelect("Pick", [{ id: "x", label: "[local] x.md", selected: false, content: "body" }]);
+
+		component().handleInput?.(key);
+
+		expect(component().render(80)[0]).toBe("Pick");
+	});
+
+	it("a key release of Esc does not close the list", async () => {
+		const { ui, component } = open();
+		let settled = false;
+		void ui.multiSelect("t", items).then(() => {
+			settled = true;
+		});
+
+		component().handleInput?.("\x1b[27;1:3u");
+		await Promise.resolve();
+
+		expect(settled).toBe(false);
+	});
+
+	it.each(ESCAPE)("Esc sent as %j leaves the Tab preview and returns to the list", (key) => {
+		const { ui, component } = open();
+		void ui.multiSelect("Pick", [{ id: "x", label: "[local] x.md", selected: false, content: "body" }]);
+		component().handleInput?.("\t");
+		expect(component().render(80)[0]).toContain("Preview");
+
+		component().handleInput?.(key);
+
+		expect(component().render(80)[0]).toBe("Pick");
 	});
 
 	it("Enter on a row of the edit picker edits it, starting on the preselected row", async () => {
@@ -252,7 +284,7 @@ describe("PiUIAdapter list rendering and navigation", () => {
 		expect(loaded).toBe(true);
 
 		// Allow promise to resolve
-		await new Promise((r) => setTimeout(r, 10));
+		await settle();
 
 		const previewLines = component().render(80);
 		expect(previewLines[0]).toContain("Preview: [local] dynamic.md");
@@ -347,309 +379,5 @@ describe("PiUIAdapter list rendering and navigation", () => {
 			// The second page starts right after the first one: no row skipped, none repeated.
 			expect(second[0]).toBe(`  row${String(first.length).padStart(3, "0")}`);
 		});
-	});
-});
-
-describe("PiUIAdapter custom editor undo behavior", () => {
-	function openEditor(title: string, prefill?: string) {
-		const { host, component } = hostWithComponent();
-		const ui = new PiUIAdapter();
-		ui.setHost(host);
-		const promise = ui.editor(title, prefill);
-		return { ui, component, promise };
-	}
-
-	it("clears undo stack on prefill so repeated Ctrl+Z never clears initial content to empty", async () => {
-		const initialContent = "# Initial prompt content\nLine 2";
-		const { component, promise } = openEditor("Edit prompt", initialContent);
-
-		// Verify initial render contains title and content
-		const lines = component().render(80);
-		expect(lines[0]).toContain("Edit prompt");
-		expect(lines.join("\n")).toContain("Initial prompt content");
-
-		// Type something extra with a whitespace to form an undo unit
-		component().handleInput?.("x");
-		component().handleInput?.(" ");
-		component().handleInput?.("y");
-		expect(component().render(80).join("\n")).toContain("x y");
-
-		// Undo: reverts the extra typing step by step
-		component().handleInput?.("\x1a"); // Ctrl+Z
-		component().handleInput?.("\x1a"); // Ctrl+Z
-		const restoredText = component().render(80).join("\n");
-		expect(restoredText).toContain("Initial prompt content");
-		expect(restoredText).toContain("Line 2");
-		expect(restoredText).not.toContain("x y");
-
-		// Repeated Ctrl+Z (10 times) must NOT clear the prefilled content to blank!
-		for (let i = 0; i < 10; i++) {
-			component().handleInput?.("\x1a");
-		}
-		const textAfterManyUndos = component().render(80).join("\n");
-		expect(textAfterManyUndos).toContain("Initial prompt content");
-		expect(textAfterManyUndos).toContain("Line 2");
-
-		// Save with Ctrl+Q
-		component().handleInput?.("\x11");
-		expect(await promise).toBe(initialContent);
-	});
-
-	it("cancels editor with Esc returning undefined", async () => {
-		const { component, promise } = openEditor("Edit prompt", "Some content");
-		component().handleInput?.("\x1b");
-		expect(await promise).toBeUndefined();
-	});
-
-	it("saves editor with Ctrl+S", async () => {
-		const { component, promise } = openEditor("Edit prompt", "Some content");
-		component().handleInput?.("\x13"); // Ctrl+S
-		expect(await promise).toBe("Some content");
-	});
-
-	it("inserts newline on Enter instead of submitting or exiting", async () => {
-		let isDone = false;
-		const { component, promise } = openEditor("Edit prompt", "FirstLine");
-		void promise.then(() => {
-			isDone = true;
-		});
-
-		// Press Enter (\r)
-		component().handleInput?.("\r");
-
-		// Await microtasks to confirm promise has not resolved
-		await new Promise((r) => setTimeout(r, 10));
-		expect(isDone).toBe(false);
-
-		// Type second line
-		component().handleInput?.("SecondLine");
-
-		// Now save with Ctrl+S
-		component().handleInput?.("\x13");
-		const result = await promise;
-		expect(result).toBe("FirstLine\nSecondLine");
-	});
-
-	it("falls back to host.ui.editor when host.ui.custom is not available", async () => {
-		let fallbackCalled = false;
-		const fallbackHost = {
-			hasUI: true,
-			ui: {
-				editor: async (title: string, prefill?: string) => {
-					fallbackCalled = true;
-					return `${title}:${prefill}`;
-				},
-			},
-		} as unknown as PiUIHost;
-
-		const ui = new PiUIAdapter();
-		ui.setHost(fallbackHost);
-
-		const result = await ui.editor("Fallback title", "Fallback prefill");
-		expect(fallbackCalled).toBe(true);
-		expect(result).toBe("Fallback title:Fallback prefill");
-	});
-
-	it("renders bottom shortcut line containing Ctrl+G: External Editor", () => {
-		const { component } = openEditor("Edit prompt", "Initial text");
-		const text = component().render(80).join("\n");
-		expect(text).toContain("Ctrl+Q / Ctrl+S: Save · Esc: Cancel · Ctrl+Z: Undo · Ctrl+G: External Editor");
-	});
-
-	it.each(CTRL_G)("launches external editor on Ctrl+G sent as %j and updates content", async (keys) => {
-		let externalEditorCallCount = 0;
-		let receivedContent = "";
-		const tuiCalls = {
-			stop: 0,
-			start: 0,
-			requestRender: 0,
-			requestRenderArgs: [] as (boolean | undefined)[],
-		};
-
-		let comp: { handleInput?(data: string): void; render(width: number): string[] } | undefined;
-		const { promise, resolve } = Promise.withResolvers<string | undefined>();
-
-		comp = editorComponent(
-			{
-				title: "External editor test",
-				prefill: "Old content",
-				onDone: resolve,
-				async externalEditor(opts) {
-					externalEditorCallCount++;
-					receivedContent = opts.content;
-					return { status: "complete", content: "New content from notepad" };
-				},
-			},
-			{
-				requestRender(force?: boolean) {
-					tuiCalls.requestRender++;
-					tuiCalls.requestRenderArgs.push(force);
-				},
-				stop() {
-					tuiCalls.stop++;
-				},
-				start() {
-					tuiCalls.start++;
-				},
-			},
-			{},
-			{},
-		);
-
-		// Trigger external editor with Ctrl+G
-		comp.handleInput?.(keys);
-
-		// Await pending async microtasks
-		await new Promise((r) => setTimeout(r, 10));
-
-		expect(externalEditorCallCount).toBe(1);
-		expect(receivedContent).toBe("Old content");
-		expect(tuiCalls.stop).toBe(1);
-		expect(tuiCalls.start).toBe(1);
-		expect(tuiCalls.requestRenderArgs).toContain(true);
-
-		// Render should show updated content
-		const rendered = comp.render(80).join("\n");
-		expect(rendered).toContain("New content from notepad");
-
-		// Repeated Ctrl+Z must not clear the new content
-		for (let i = 0; i < 5; i++) {
-			comp.handleInput?.("\x1a");
-		}
-		expect(comp.render(80).join("\n")).toContain("New content from notepad");
-
-		// Save with Ctrl+S
-		comp.handleInput?.("\x13");
-		expect(await promise).toBe("New content from notepad");
-	});
-
-	it("ignores concurrent key input while external editor is active", async () => {
-		let externalEditorCalls = 0;
-		const { promise: editorPromise, resolve: resolveEditor } = Promise.withResolvers<void>();
-
-		const comp = editorComponent(
-			{
-				title: "Concurrency test",
-				prefill: "Original",
-				onDone() {},
-				async externalEditor() {
-					externalEditorCalls++;
-					await editorPromise;
-					return { status: "complete", content: "Updated after wait" };
-				},
-			},
-			{ requestRender() {} },
-			{},
-			{},
-		);
-
-		// Start external editor
-		comp.handleInput?.("\x07"); // Ctrl+G
-		expect(externalEditorCalls).toBe(1);
-
-		// Press Ctrl+G again while waiting — should be ignored
-		comp.handleInput?.("\x07");
-		// Type characters while waiting — should be ignored
-		comp.handleInput?.("x");
-		expect(externalEditorCalls).toBe(1);
-
-		// Complete external editor
-		resolveEditor();
-		await new Promise((r) => setTimeout(r, 10));
-
-		expect(comp.render(80).join("\n")).toContain("Updated after wait");
-	});
-
-	it("editInExternalEditor handles file update, strips BOM and normalizes CRLF", async () => {
-		const result = await editInExternalEditor({
-			content: "Initial text",
-			command: 'bun -e "const fs=require(\'fs\');fs.writeFileSync(process.argv[1],\'\\uFEFFupdated text\\r\\nsecond line\');"',
-		});
-
-		expect(result.status).toBe("complete");
-		expect(result.content).toBe("updated text\nsecond line");
-	});
-
-	it("editInExternalEditor returns failure when command exits non-zero", async () => {
-		const result = await editInExternalEditor({
-			content: "Initial text",
-			command: 'bun -e "process.exit(1)"',
-		});
-
-		expect(result.status).toBe("failed");
-	});
-
-	it("editInExternalEditor returns failure when command does not exist", async () => {
-		const result = await editInExternalEditor({
-			content: "Initial text",
-			command: "non_existent_editor_command_xyz123",
-		});
-
-		expect(result.status).toBe("failed");
-	});
-});
-
-describe("splitCommand", () => {
-	it("parses single command without arguments", () => {
-		expect(splitCommand("nano")).toEqual(["nano"]);
-	});
-
-	it("splits space-delimited command and arguments", () => {
-		expect(splitCommand("code --wait")).toEqual(["code", "--wait"]);
-	});
-
-	it("collapses multiple spaces, tabs, and trims surrounding whitespace", () => {
-		expect(splitCommand("  code \t  --wait   ")).toEqual(["code", "--wait"]);
-	});
-
-	it("preserves spaces inside double quotes and strips the quotes", () => {
-		expect(splitCommand('bun -e "console.log(1 2 3)"')).toEqual([
-			"bun",
-			"-e",
-			"console.log(1 2 3)",
-		]);
-	});
-
-	it("preserves spaces inside single quotes and strips the quotes", () => {
-		expect(splitCommand("bun -e 'process.exit(1)'")).toEqual([
-			"bun",
-			"-e",
-			"process.exit(1)",
-		]);
-	});
-
-	it("handles nested quotes properly", () => {
-		expect(splitCommand('bun -e "const a = \'hello world\';"')).toEqual([
-			"bun",
-			"-e",
-			"const a = 'hello world';",
-		]);
-		expect(splitCommand("bun -e 'const a = \"hello world\";'")).toEqual([
-			"bun",
-			"-e",
-			'const a = "hello world";',
-		]);
-	});
-
-	it("handles escaped quotes inside quotes", () => {
-		expect(splitCommand('echo "hello \\"world\\""')).toEqual([
-			"echo",
-			'hello "world"',
-		]);
-	});
-
-	it("preserves Windows style paths with spaces and backslashes inside quotes", () => {
-		expect(
-			splitCommand('"C:\\Program Files\\Notepad++\\notepad++.exe" -multiInst'),
-		).toEqual(["C:\\Program Files\\Notepad++\\notepad++.exe", "-multiInst"]);
-	});
-
-	it("returns empty array for empty or whitespace-only strings", () => {
-		expect(splitCommand("")).toEqual([]);
-		expect(splitCommand("   \t  ")).toEqual([]);
-	});
-
-	it("preserves empty quoted tokens", () => {
-		expect(splitCommand('code ""')).toEqual(["code", ""]);
 	});
 });

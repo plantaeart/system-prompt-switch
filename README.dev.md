@@ -98,11 +98,14 @@ If you created a shell shortcut with `omp --profile <name> --alias <cmd>`, that 
 
 ---
 
-## Editor shortcut caveat
+## Editors and host entries
 
-`host.ui.editor(title, prefill)` from `@earendil-works/pi-coding-agent` renders a hardcoded footer (`Ctrl+Q/Ctrl+Enter submit / Esc cancel / Ctrl+G external editor`). The host API takes no footer-template option, and the keypress stream is owned by the host, so we **cannot** suppress or intercept it from extension code.
+Pi and OMP load different entry files (`package.json`: `pi.extensions` and `omp.extensions`), and both call `systemPromptSwitchExtension` in `src/extension.ts` with their own editor:
 
-Workaround shipped in this repo: `PromptService.runEditorWithHint()` swaps the above-editor widget to a boxed banner that shows the real shortcuts, and restores the status widget in `finally`.
+- `extensions/pi.ts` uses `src/adapters/pi-editor.adapter.ts`, pi-tui's `Editor`.
+- `extensions/index.ts` (OMP) uses `src/adapters/omp-editor.adapter.ts`, a local rows-object editor with the same keys.
+
+Never import `pi-tui` (or `@oh-my-pi/pi-tui`) from anything the OMP entry reaches: OMP 19 refuses to load an extension that does. `pi-editor.adapter.ts` is the only file that imports it, and only `extensions/pi.ts` loads that file. Width, truncation, wrapping and escape stripping live in `src/core/text-width.ts`. `tests/e2e/cli-smoke.test.ts` loads each host's entry in its CLI (when on PATH) and fails on "Failed to load extension". Run Pi with `pi -e extensions/pi.ts` and OMP with `omp -e extensions/index.ts`.
 
 ---
 
@@ -151,7 +154,7 @@ The `.npmignore` keeps the tarball lean (no `.agents/`, no lockfiles, no VCS, no
 
 - **Ports**: `src/ports/*.port.ts` define `UIPort`, `StoragePort`, `SessionStatePort`, `DefaultPromptPort`.
 - **Adapters**: `src/adapters/*.adapter.ts` implement those ports against Pi/OMP (`pi-ui.adapter.ts`), the filesystem (`fs-storage.adapter.ts`), the session JSONL store (`session-state.adapter.ts`), and the per-project default prompt (`default-prompt.adapter.ts`, `defaults.json` beside the session state file).
-- **Core**: `src/core/prompt-service.ts` is the only orchestrator. It owns prompt selection, mutation, mode, and the editor banner lifecycle.
+- **Core**: `src/core/prompt-service.ts` is the only orchestrator. It owns prompt selection, mutation and mode.
 - **Why hexagonal**: keeps the domain unit-testable without spawning a host (the 42 unit tests run in <100ms; only the 2 e2e tests touch the host).
 
 ---
