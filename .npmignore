@@ -31,3 +31,10 @@ flake.lock
 coverage/
 # Logos are loaded from GitHub raw URLs, not from the package
 assets/logo/
+# README screenshots and demo GIFs are loaded from GitHub raw URLs, not from the package
+assets/imgs/
+assets/gifs/
+
+# Python tooling
+.venv/
+pyrightconfig.json

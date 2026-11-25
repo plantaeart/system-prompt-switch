@@ -43,3 +43,7 @@ dist/
 
 # direnv / nix-direnv cache (also holds the pinned Pi/OMP CLIs)
 .direnv/
+
+# Python venv for the language server (Pillow for .agents/skills/screenshots)
+.venv/
+__pycache__/

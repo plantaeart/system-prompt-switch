@@ -12,7 +12,7 @@
 
 A Pi / OMP extension that manages custom system prompts per session: interactive modals, cumulative stacking, two scopes (local repo + global home), CRUD commands, and an above-editor banner that always shows what's active.
 
-![Active prompt banner](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/img1.png)
+![Active prompt banner](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/banner.png)
 
 **Contents:** [Why](#why-not-just-edit-agentsmd) · [Install](#install) · [Screenshots](#screenshots) · [What it does](#what-it-does) · [Commands](#commands) · [How prompts live](#how-prompts-live) · [Environment variables](#environment-variables) · [Developers](#for-developers)
 
@@ -52,13 +52,52 @@ That's it. The extension registers on next session start. Works in both Pi and O
 
 ## Screenshots
 
-Startup session modal - pick a prompt or create one:
+Startup modal - pick a prompt or create one (Space/Enter ticks, Ctrl+S saves, Esc skips):
 
-![Startup session modal](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/img2.png)
+![Startup session modal](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/modal.png)
 
-The editor while creating a new prompt (the key hints are drawn under the text; Esc cancels):
+Tick several prompts to stack them, or press Tab to preview one:
 
-![Editor area for create/edit system prompts](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/img3.png)
+![Several prompts ticked](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/modal-multi.png)
+![Tab preview of a prompt](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/preview.png)
+
+The banner above the input always shows what is active, local and global stacked:
+
+![Stacked prompts in the banner](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/banner-stack.png)
+
+`/sps-select` with names skips the picker; `/sps-inject` stacks prompts for the next message only:
+
+![/sps-select with names](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/select-names.png)
+![/sps-inject list](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/inject.png)
+![/sps-inject result](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/inject-done.png)
+
+`/sps-new`: name, destination, then the editor (the key hints are drawn under the text; Esc cancels):
+
+![/sps-new file name](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/new.png)
+![/sps-new destination](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/new-scope.png)
+![/sps-new editor](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/new-editor.png)
+
+`/sps-edit`: pick a prompt (Ctrl+N renames it), edit it; saving an emptied prompt asks first:
+
+![/sps-edit picker](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/edit.png)
+![/sps-edit editor](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/edit-editor.png)
+![Save empty prompt confirmation](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/empty-save.png)
+
+`/sps-delete` and `/sps-move`:
+
+![/sps-delete confirmation](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/delete.png)
+![/sps-move destination](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/move.png)
+
+`/sps-mode`, `/sps-info`, `/sps-path` and `/sps-logs`:
+
+![/sps-mode replace](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/mode.png)
+![/sps-info](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/info.png)
+![/sps-path](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/path.png)
+![/sps-logs](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/logs.png)
+
+If a project default points at a deleted file, it is dropped with a warning and the modal shows again:
+
+![Missing default prompt](https://raw.githubusercontent.com/plantaeart/system-prompt-switch/master/assets/imgs/missing-default.png)
 
 Demo GIFs:
 

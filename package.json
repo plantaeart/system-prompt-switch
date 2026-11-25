@@ -1,6 +1,6 @@
 {
   "name": "system-prompt-switch",
-  "version": "0.14.1",
+  "version": "0.14.2",
   "description": "Pi and OMP extension to manage custom system prompts per session: switch, stack, and edit prompts from a modal, with CRUD slash commands",
   "type": "module",
   "main": "extensions/index.ts",

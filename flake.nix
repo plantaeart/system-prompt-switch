@@ -36,7 +36,8 @@
               inherit (src) hash;
             };
           });
-          packages = [ bun pkgs.nodejs_26 pkgs.uv ];
+          # Pillow: .agents/skills/screenshots/scripts/render-ansi.py
+          packages = [ bun pkgs.nodejs_26 pkgs.uv (pkgs.python3.withPackages (ps: [ ps.pillow ])) ];
         in
         {
           # Day-to-day development (direnv): no host CLIs installed.
